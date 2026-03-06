@@ -46,31 +46,41 @@ const getHeaders = () => ({
 // Cache simple para evitar rate limiting
 let cachedMatches: MatchForApp[] = [];
 let cacheTime = 0;
-const CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutos (para datos más frescos)
 
 // Generar partidos simulados realistas como fallback
+// SOLO partidos FUTUROS con hora Colombia
 function generateFallbackMatches(): MatchForApp[] {
   const now = new Date();
   const matches: MatchForApp[] = [];
-  
+
+  // Hora actual en Colombia (UTC-5)
+  const colombiaNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+  console.log(`🇨🇴 Hora Colombia: ${colombiaNow.toLocaleString('es-CO')}`);
+
   const leagues = [
     { name: 'Premier League', country: 'Inglaterra', teams: ['Manchester City', 'Arsenal', 'Liverpool', 'Manchester United', 'Chelsea', 'Tottenham', 'Newcastle', 'Aston Villa', 'Brighton', 'West Ham'] },
     { name: 'La Liga', country: 'España', teams: ['Real Madrid', 'Barcelona', 'Atlético Madrid', 'Real Sociedad', 'Villarreal', 'Real Betis', 'Athletic Bilbao', 'Sevilla'] },
     { name: 'Serie A', country: 'Italia', teams: ['Inter Milan', 'Napoli', 'AC Milan', 'Juventus', 'Atalanta', 'Roma', 'Lazio', 'Fiorentina'] },
     { name: 'Bundesliga', country: 'Alemania', teams: ['Bayern Munich', 'Borussia Dortmund', 'RB Leipzig', 'Bayer Leverkusen', 'Union Berlin', 'Freiburg'] },
     { name: 'Ligue 1', country: 'Francia', teams: ['PSG', 'Monaco', 'Marseille', 'Lille', 'Lyon', 'Nice', 'Lens'] },
-    { name: 'Liga BetPlay', country: 'Colombia', teams: ['Atlético Nacional', 'Millonarios', 'América de Cali', 'Junior de Barranquilla', 'Independiente Santa Fe', 'Deportes Tolima', 'Once Caldas'] },
+    { name: 'Liga BetPlay', country: 'Colombia', teams: ['Atlético Nacional', 'Millonarios', 'América de Cali', 'Junior de Barranquilla', 'Independiente Santa Fe', 'Deportes Tolima', 'Once Caldas', 'Deportivo Cali', 'Independiente Medellín'] },
+    { name: 'Copa Libertadores', country: 'Sudamérica', teams: ['River Plate', 'Boca Juniors', 'Flamengo', 'Palmeiras', 'Atlético Nacional', 'Fluminense', 'Gremio', 'Athletico Paranaense'] },
+    { name: 'Champions League', country: 'Europa', teams: ['Real Madrid', 'Manchester City', 'Bayern Munich', 'PSG', 'Barcelona', 'Inter Milan', 'Arsenal', 'Napoli'] },
   ];
-  
+
   let matchId = 1;
-  
-  for (let day = 0; day < 30; day++) {
-    const matchDate = new Date(now);
-    matchDate.setDate(matchDate.getDate() + day);
-    
-    // Entre 2-5 partidos por día
-    const numMatches = 2 + Math.floor(Math.random() * 4);
-    
+  const usedMatchups = new Set<string>(); // Evitar duplicados
+
+  // Generar partidos para los próximos 14 días
+  for (let day = 0; day < 14; day++) {
+    const baseDate = new Date(colombiaNow);
+    baseDate.setDate(baseDate.getDate() + day);
+    baseDate.setHours(0, 0, 0, 0);
+
+    // Entre 3-6 partidos por día
+    const numMatches = 3 + Math.floor(Math.random() * 4);
+
     for (let i = 0; i < numMatches; i++) {
       const league = leagues[Math.floor(Math.random() * leagues.length)];
       const homeIdx = Math.floor(Math.random() * league.teams.length);
@@ -78,15 +88,31 @@ function generateFallbackMatches(): MatchForApp[] {
       while (awayIdx === homeIdx) {
         awayIdx = Math.floor(Math.random() * league.teams.length);
       }
-      
-      // Hora aleatoria entre 12:00 y 21:00
-      const hour = 12 + Math.floor(Math.random() * 10);
-      matchDate.setHours(hour, [0, 15, 30, 45][Math.floor(Math.random() * 4)], 0, 0);
-      
+
+      const homeTeam = league.teams[homeIdx];
+      const awayTeam = league.teams[awayIdx];
+      const matchupKey = `${homeTeam}-${awayTeam}`;
+
+      // Evitar duplicados
+      if (usedMatchups.has(matchupKey)) continue;
+      usedMatchups.add(matchupKey);
+
+      // Horarios típicos en Colombia: 12:00, 14:00, 15:00, 16:00, 18:00, 19:00, 20:00, 21:00
+      const typicalHours = [12, 14, 15, 16, 18, 19, 20, 21];
+      const hour = typicalHours[Math.floor(Math.random() * typicalHours.length)];
+
+      const matchDate = new Date(baseDate);
+      matchDate.setHours(hour, 0, 0, 0);
+
+      // Si es hoy, solo crear partidos que aún no han comenzado (mínimo 1 hora en el futuro)
+      if (day === 0 && matchDate.getTime() <= colombiaNow.getTime() + 60 * 60 * 1000) {
+        continue;
+      }
+
       matches.push({
         id: `match_${matchId++}`,
-        homeTeam: league.teams[homeIdx],
-        awayTeam: league.teams[awayIdx],
+        homeTeam,
+        awayTeam,
         league: league.name,
         country: league.country,
         matchDate: matchDate.toISOString(),
@@ -94,16 +120,29 @@ function generateFallbackMatches(): MatchForApp[] {
       });
     }
   }
-  
-  return matches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
+
+  // Ordenar por fecha (más cercana primero)
+  const sortedMatches = matches.sort((a, b) =>
+    new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime()
+  );
+
+  console.log(`✅ Generados ${sortedMatches.length} partidos futuros`);
+  return sortedMatches;
 }
 
 // Obtener partidos de la API o usar fallback
-export async function getUpcomingMatches(days: number = 30): Promise<MatchForApp[]> {
-  // Verificar cache
+export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp[]> {
+  // Verificar cache (solo 10 minutos para mantener datos frescos)
   if (cachedMatches.length > 0 && Date.now() - cacheTime < CACHE_DURATION) {
     console.log('📦 Usando partidos en cache');
-    return cachedMatches.slice(0, days * 3); // ~3 partidos por día
+    // Filtrar partidos que aún no han comenzado
+    const now = new Date();
+    const futureMatches = cachedMatches.filter(m => {
+      const matchDate = new Date(m.matchDate);
+      // Solo partidos que comienzan al menos 30 minutos en el futuro
+      return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
+    });
+    return futureMatches.slice(0, days * 5);
   }
   
   try {
@@ -132,7 +171,19 @@ export async function getUpcomingMatches(days: number = 30): Promise<MatchForApp
     const data = await response.json();
     
     if (data.response && Array.isArray(data.response)) {
+      const now = new Date();
       const matches: MatchForApp[] = data.response
+        // Solo partidos que NO han comenzado (NS = Not Started, TBD = To Be Determined)
+        .filter((match: ApiMatch) => {
+          const status = match.fixture.status.short;
+          // Estados de partido que aún no ha comenzado
+          const upcomingStatuses = ['NS', 'TBD', 'PST', 'CAN', 'SUSP'];
+          if (!upcomingStatuses.includes(status)) return false;
+          
+          // Verificar que el partido es futuro
+          const matchDate = new Date(match.fixture.date);
+          return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
+        })
         .slice(0, 100) // Máximo 100 partidos
         .map((match: ApiMatch) => ({
           id: `real_${match.fixture.id}`,
@@ -147,10 +198,13 @@ export async function getUpcomingMatches(days: number = 30): Promise<MatchForApp
           leagueLogo: match.league.logo,
         }));
       
+      // Ordenar por fecha más cercana primero
+      matches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
+      
       cachedMatches = matches;
       cacheTime = Date.now();
       
-      console.log(`✅ ${matches.length} partidos obtenidos de la API`);
+      console.log(`✅ ${matches.length} partidos FUTUROS obtenidos de la API`);
       return matches;
     }
     

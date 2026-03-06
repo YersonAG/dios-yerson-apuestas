@@ -67,6 +67,27 @@ const formatColombianTime = (dateStr: string) => {
   }
 };
 
+// Determinar si es hoy o mañana en Colombia
+const getDayLabel = (dateStr: string): string => {
+  try {
+    const date = new Date(dateStr);
+    const colombiaDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+    const now = new Date();
+    const colombiaNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+    
+    colombiaNow.setHours(0, 0, 0, 0);
+    colombiaDate.setHours(0, 0, 0, 0);
+    
+    const diffDays = Math.floor((colombiaDate.getTime() - colombiaNow.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return '🔴 HOY';
+    if (diffDays === 1) return '🟡 MAÑANA';
+    return '';
+  } catch {
+    return '';
+  }
+};
+
 export function Chat({ onCombinadasGenerated, onTakeBet, user }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -76,7 +97,9 @@ export function Chat({ onCombinadasGenerated, onTakeBet, user }: ChatProps) {
 
 ¿En qué partidos le vas a encomendar tu dinero?
 
-Escribe **"ver partidos"** para ver los partidos.
+Escribe **"ver partidos"** para ver los próximos partidos.
+
+⏰ Horarios en hora Colombia (UTC-5)
 
 *Agradece al Dios Yerson.* 🙏`,
       timestamp: new Date(),
@@ -340,6 +363,7 @@ Escribe **"ver partidos"** para ver los partidos.
                     <div className="space-y-1 md:space-y-1.5 max-h-40 md:max-h-52 overflow-y-auto pr-1">
                       {message.matches.map((match) => {
                         const isSelected = selectedMatchIds.has(match.id);
+                        const dayLabel = getDayLabel(match.matchDate);
                         
                         return (
                           <div
@@ -357,8 +381,15 @@ Escribe **"ver partidos"** para ver los partidos.
                               className="border-green-500 data-[state=checked]:bg-green-500 shrink-0 mt-0.5 h-3.5 w-3.5 md:h-4 md:w-4"
                             />
                             <div className="flex-1 min-w-0 overflow-hidden">
-                              <div className="text-[10px] md:text-xs text-white font-medium truncate">
-                                {match.homeTeam} vs {match.awayTeam}
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] md:text-xs text-white font-medium truncate">
+                                  {match.homeTeam} vs {match.awayTeam}
+                                </span>
+                                {dayLabel && (
+                                  <span className="text-[8px] md:text-[9px] px-1 py-0.5 rounded bg-green-600/30 text-green-400 shrink-0">
+                                    {dayLabel}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex flex-wrap items-center gap-1 mt-0.5 text-[9px] md:text-[10px] text-gray-400">
                                 <span className="flex items-center gap-0.5 truncate max-w-[60px] md:max-w-[100px]">
@@ -369,7 +400,7 @@ Escribe **"ver partidos"** para ver los partidos.
                                   <Calendar className="w-2.5 h-2.5 text-blue-400" /> 
                                   {formatColombianDate(match.matchDate)}
                                 </span>
-                                <span className="flex items-center gap-0.5 shrink-0">
+                                <span className="flex items-center gap-0.5 shrink-0 font-medium text-yellow-400">
                                   <Clock className="w-2.5 h-2.5 text-yellow-400" /> 
                                   {formatColombianTime(match.matchDate)}
                                 </span>

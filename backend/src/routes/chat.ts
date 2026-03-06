@@ -59,14 +59,36 @@ router.post('/', async (req: Request, res: Response) => {
       
       console.log('📋 Obteniendo partidos...');
       
-      const matches = await getUpcomingMatches(30);
+      const matches = await getUpcomingMatches(14);
       
       console.log(`✅ Enviando ${matches.length} partidos`);
+      
+      // Crear resumen de fechas
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const todayMatches = matches.filter(m => {
+        const d = new Date(m.matchDate);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime() === today.getTime();
+      }).length;
+      
+      const tomorrowMatches = matches.filter(m => {
+        const d = new Date(m.matchDate);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime() === tomorrow.getTime();
+      }).length;
+      
+      let dateInfo = '';
+      if (todayMatches > 0) dateInfo += `📊 **Hoy:** ${todayMatches} partidos\n`;
+      if (tomorrowMatches > 0) dateInfo += `📊 **Mañana:** ${tomorrowMatches} partidos\n`;
       
       return res.json({
         success: true,
         type: 'showing_matches',
-        message: `📋 **PARTIDOS DISPONIBLES**\n\nHe encontrado ${matches.length} partidos para los próximos 30 días.\n\nSelecciona los que quieras incluir en tu combinada:`,
+        message: `📋 **PARTIDOS DISPONIBLES**\n\n${dateInfo}🗓️ Total: ${matches.length} partidos próximos\n\n⏰ Horario Colombia (UTC-5)\n\nSelecciona los partidos para tu combinada:`,
         availableMatches: matches,
       });
     }
@@ -131,8 +153,8 @@ router.post('/', async (req: Request, res: Response) => {
 
     // ========== GENERAR AUTOMÁTICO ==========
     if (lowerMessage.includes('automátic') || lowerMessage.includes('automatico') || lowerMessage.includes('auto')) {
-      const matches = await getUpcomingMatches(30);
-      const selectedMatches = matches.slice(0, 5); // Tomar 5 partidos
+      const matches = await getUpcomingMatches(14);
+      const selectedMatches = matches.slice(0, 5); // Tomar 5 partidos próximos
       
       const picks = selectedMatches.map((match) => {
         const pick = generateLowRiskPick(match);
@@ -202,7 +224,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         type: 'help',
-        message: `📖 **CÓMO FUNCIONA**\n\n**1.** Escribe **"ver partidos"** para ver partidos de los próximos 30 días\n\n**2.** Selecciona los partidos que quieras\n\n**3.** Presiona **"Generar picks"** para obtener apuestas de bajo riesgo\n\n**4.** Presiona **"Tomar Apuesta"** para guardarla\n\n---\n💡 También puedes escribir **"automático"** para generar una combinada rápidamente\n\n🟢 Solo apuestas de **BAJO RIESGO**`,
+        message: `📖 **CÓMO FUNCIONA**\n\n**1.** Escribe **"ver partidos"** para ver partidos próximos\n\n**2.** Selecciona los partidos que quieras\n\n**3.** Presiona **"Generar picks"** para obtener apuestas de bajo riesgo\n\n**4.** Presiona **"Tomar Apuesta"** para guardarla\n\n---\n💡 También puedes escribir **"automático"** para generar una combinada rápidamente\n\n🟢 Solo apuestas de **BAJO RIESGO**\n\n⏰ Horarios mostrados en hora Colombia (UTC-5)`,
       });
     }
 
