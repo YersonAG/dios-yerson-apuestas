@@ -1,0 +1,155 @@
+// This is your Prisma schema file,
+// Sistema de Apuestas Deportivas - El Dios Yerson
+// Compatible con PostgreSQL (Railway)
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// Usuario del sistema con autenticación
+model User {
+  id           String        @id @default(cuid())
+  username     String        @unique
+  email        String        @unique
+  password     String
+  createdAt    DateTime      @default(now())
+  lastLogin    DateTime?
+  bets         Bet[]
+  history      BetHistory[]
+  sessions     Session[]
+}
+
+// Sesiones de usuario
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token        String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  
+  @@index([userId])
+  @@index([token])
+}
+
+// Apuesta principal (combinada)
+model Bet {
+  id               String      @id @default(cuid())
+  userId           String
+  user             User        @relation(fields: [userId], references: [id])
+  createdAt        DateTime    @default(now())
+  status           String      @default("active")
+  totalProbability Float       @default(0)
+  riskLevel        String      @default("medium")
+  items            BetItem[]
+  history          BetHistory?
+  isYersonPick     Boolean     @default(false)
+  
+  @@index([userId])
+  @@index([status])
+}
+
+// Items individuales de una apuesta
+model BetItem {
+  id           String   @id @default(cuid())
+  betId        String
+  bet          Bet      @relation(fields: [betId], references: [id], onDelete: Cascade)
+  matchId      String
+  match        Match    @relation(fields: [matchId], references: [id])
+  pick         String
+  odds         Float
+  probability  Float
+  result       String?
+  createdAt    DateTime @default(now())
+  
+  @@index([betId])
+  @@index([matchId])
+}
+
+// Historial de apuestas completadas
+model BetHistory {
+  id             String   @id @default(cuid())
+  betId          String   @unique
+  bet            Bet      @relation(fields: [betId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  result         String
+  dateCompleted  DateTime @default(now())
+  totalOdds      Float
+  matchesCount   Int
+  
+  @@index([userId])
+  @@index([result])
+}
+
+// Datos de aprendizaje del sistema
+model LearningData {
+  id           String   @id @default(cuid())
+  pickType     String
+  league       String
+  successRate  Float    @default(0)
+  totalPicks   Int      @default(0)
+  wonPicks     Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  
+  @@unique([pickType, league])
+  @@index([pickType])
+  @@index([league])
+}
+
+// Partidos disponibles para apostar
+model Match {
+  id              String    @id @default(cuid())
+  homeTeam        String
+  awayTeam        String
+  league          String
+  matchDate       DateTime
+  homeOdds        Float
+  drawOdds        Float
+  awayOdds        Float
+  over25Odds      Float?
+  under25Odds     Float?
+  bttsYesOdds     Float?
+  bttsNoOdds      Float?
+  homeForm        String?
+  awayForm        String?
+  homeGoalsAvg    Float?
+  awayGoalsAvg    Float?
+  h2hHomeWins     Int?
+  h2hDraws        Int?
+  h2hAwayWins     Int?
+  homeInjuries    String?
+  awayInjuries    String?
+  homeWinsHome    Int?
+  homeLossesHome  Int?
+  awayWinsAway    Int?
+  awayLossesAway  Int?
+  homeScore       Int?
+  awayScore       Int?
+  status          String?   @default("SCHEDULED")
+  createdAt       DateTime  @default(now())
+  betItems        BetItem[]
+  
+  @@index([league])
+  @@index([matchDate])
+}
+
+// Modelo para tracking de sesiones de apuestas
+model BetSession {
+  id           String   @id @default(cuid())
+  userId       String
+  startTime    DateTime @default(now())
+  endTime      DateTime?
+  totalStake   Float?
+  totalReturn  Float?
+  sessionType  String   // "virtual", "real"
+  
+  @@index([userId])
+}
