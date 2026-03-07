@@ -1,11 +1,11 @@
 // Rutas de Chat - El Dios Yerson
-// Motor v4.7 PRO - Con Análisis REAL de Equipos
+// Motor v4.7 PRO - Monte Carlo + ELO + xG + Value Betting
 
 import { Router, Request, Response } from 'express';
 import { db } from '../lib/db';
 import { getCurrentUser } from './auth';
 import { getUpcomingMatches, MatchForApp } from '../lib/football-api';
-import { analyzeMatch, generateCombinadaFromMatches, MatchPick } from '../lib/ai-betting-engine';
+import { analyzeMatch, generateCombinadaFromMatches, MatchPick, Combinada } from '../lib/ai-betting-engine';
 
 const router = Router();
 
@@ -18,14 +18,11 @@ function filterFutureMatches(matches: MatchForApp[]): MatchForApp[] {
   });
 }
 
-// ===== FORMATEAR RESPUESTA =====
-function formatCombinadaResponse(combinada: { 
-  picks: MatchPick[]; 
-  totalOdds: number; 
-  totalProbability: number 
-}, title: string): string {
+// ===== FORMATEAR RESPUESTA CON MÉTRICAS v4.7 PRO =====
+function formatCombinadaResponse(combinada: Combinada, title: string): string {
   let response = `🎰 **${title}**\n\n`;
-  response += `📊 Probabilidad: **${(combinada.totalProbability * 100).toFixed(0)}%**\n`;
+  response += `📊 **Score: ${combinada.score}/100**\n`;
+  response += `🎲 Probabilidad: **${(combinada.totalProbability * 100).toFixed(0)}%**\n`;
   response += `💰 Cuota total: **${combinada.totalOdds.toFixed(2)}**\n`;
   response += `📍 ${combinada.picks.length} picks\n\n`;
   response += `---\n\n`;
@@ -36,13 +33,20 @@ function formatCombinadaResponse(combinada: {
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
       timeZone: 'America/Bogota'
     });
+    
     response += `**${i + 1}. ${pick.homeTeam} vs ${pick.awayTeam}**\n`;
     response += `📍 ${pick.league} | 📅 ${dateStr}\n`;
     response += `✅ **${pick.pick}** @ ${pick.odds.toFixed(2)}\n`;
-    response += `📝 _${pick.analysis}_\n\n`;
+    response += `📊 Score: **${pick.score}/100** | Monte Carlo: ${Math.round(pick.monteCarloProb * 100)}%\n`;
+    response += `⚽ xG: ${pick.xGTotal.toFixed(2)} | ELO Diff: ${pick.eloDiff > 0 ? '+' : ''}${pick.eloDiff}\n`;
+    response += `📉 Volatilidad: ${pick.volatility.toFixed(0)}/100`;
+    if (pick.valueBet > 0) {
+      response += ` | 💰 VALUE: +${pick.valueBet.toFixed(1)}%`;
+    }
+    response += `\n\n`;
   });
   
-  response += `---\n\n🟢 **BAJO RIESGO**\n\n*Agradece al Dios Yerson.* 🙏`;
+  response += `---\n\n🟢 **BAJO RIESGO** (Score > 65)\n\n*Agradece al Dios Yerson.* 🙏`;
   return response;
 }
 
@@ -50,9 +54,10 @@ function formatCombinadaResponse(combinada: {
 router.get('/', async (req: Request, res: Response) => {
   res.json({ 
     status: 'ok',
-    message: 'Motor v4.7 PRO - Análisis REAL de equipos',
+    message: 'Motor v4.7 PRO - Monte Carlo + ELO + xG + Value Betting',
     hint: 'POST {"message": "ver partidos"}',
-    version: '4.7.0'
+    version: '4.7.0',
+    features: ['Monte Carlo 10K', 'ELO Rating', 'xG Analysis', 'Value Betting', 'Volatility Score']
   });
 });
 
@@ -119,8 +124,17 @@ router.post('/', async (req: Request, res: Response) => {
       
       const matchesToUse = selectedMatchesData.slice(0, 20);
       
-      // Usar el motor REAL de análisis
+      // Usar el motor v4.7 PRO
       const combinada = generateCombinadaFromMatches(matchesToUse);
+      
+      if (combinada.picks.length === 0) {
+        return res.json({
+          success: false,
+          type: 'error',
+          message: `❌ No se encontraron picks de bajo riesgo (Score > 65).\n\nLos partidos seleccionados no cumplen con los criterios del motor v4.7 PRO.`,
+        });
+      }
+      
       const response = formatCombinadaResponse(combinada, 'COMBINADA PERSONALIZADA');
       
       return res.json({
@@ -188,6 +202,62 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    // ========== SOÑADORA DEL DÍA (Mejores picks del día) ==========
+    if (lowerMessage.includes('soñadora del día') || lowerMessage.includes('sonadora del dia') || lowerMessage.includes('soñadora dia')) {
+      console.log('🌟 Generando Soñadora del Día...');
+      
+      let matches = await getUpcomingMatches(14);
+      matches = filterFutureMatches(matches);
+      
+      if (matches.length < 2) {
+        return res.json({
+          success: false,
+          type: 'error',
+          message: `❌ No hay suficientes partidos disponibles.\n\nIntenta más tarde.`,
+        });
+      }
+      
+      // Analizar TODOS los partidos y tomar los mejores
+      const allPicks = matches.map(m => generateCombinadaFromMatches([m])).filter(c => c.picks.length > 0);
+      allPicks.sort((a, b) => b.score - a.score);
+      
+      // Tomar los 2-3 mejores picks
+      const bestPicks = allPicks.slice(0, 3).flatMap(c => c.picks);
+      
+      if (bestPicks.length === 0) {
+        return res.json({
+          success: false,
+          type: 'error',
+          message: `❌ No hay picks de bajo riesgo disponibles hoy.\n\nEl motor v4.7 PRO es selectivo.`,
+        });
+      }
+      
+      const totalOdds = Math.round(bestPicks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
+      const totalProbability = Math.round(bestPicks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
+      const avgScore = Math.round(bestPicks.reduce((acc, p) => acc + p.score, 0) / bestPicks.length);
+      
+      const combinada: Combinada = {
+        id: `comb_${Date.now()}`,
+        picks: bestPicks,
+        totalOdds,
+        totalProbability,
+        score: avgScore,
+        risk: 'low',
+        status: 'pending',
+        taken: false,
+      };
+      
+      const response = formatCombinadaResponse(combinada, '🌟 SOÑADORA DEL DÍA');
+      
+      return res.json({
+        success: true,
+        type: 'combinadas',
+        message: response,
+        combinadas: [combinada],
+        canTake: !!user,
+      });
+    }
+
     // ========== ANÁLISIS DE PARTIDO ESPECÍFICO ==========
     if (lowerMessage.includes('analiza') || lowerMessage.includes('analiz') || lowerMessage.includes('análisis')) {
       // Buscar si mencionan equipos
@@ -201,21 +271,24 @@ router.post('/', async (req: Request, res: Response) => {
         
         const analysis = analyzeMatch(homeTeam, awayTeam);
         
-        let response = `🔍 **ANÁLISIS: ${analysis.homeTeam} vs ${analysis.awayTeam}**\n`;
+        let response = `🔍 **ANÁLISIS v4.7 PRO: ${analysis.homeTeam} vs ${analysis.awayTeam}**\n`;
         response += `📍 Liga: ${analysis.league}\n\n`;
         
-        response += `📊 **ESTADÍSTICAS:**\n`;
-        response += `• ${analysis.homeTeam}: Fuerza ${analysis.stats.homeStrength} | Forma: ${analysis.stats.homeForm}\n`;
-        response += `• ${analysis.awayTeam}: Fuerza ${analysis.stats.awayStrength} | Forma: ${analysis.stats.awayForm}\n`;
-        response += `• Diferencia: ${analysis.stats.diff > 0 ? '+' : ''}${analysis.stats.diff}\n`;
-        response += `• Goles promedio: ${analysis.stats.totalGoalsAvg.toFixed(1)}\n\n`;
+        response += `📊 **MÉTRICAS DEL MOTOR:**\n`;
+        response += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+        response += `🏆 **Score: ${analysis.score}/100**\n`;
+        response += `📈 ELO Diff: ${analysis.eloDiff > 0 ? '+' : ''}${analysis.eloDiff}\n`;
+        response += `⚽ xG Total: ${analysis.xGTotal.toFixed(2)}\n`;
+        response += `🎲 Monte Carlo: ${Math.round(analysis.monteCarloProb * 100)}%\n`;
+        response += `📉 Volatilidad: ${analysis.volatility.toFixed(0)}/100\n`;
+        response += `💰 Value Bet: ${analysis.valueBet > 0 ? '+' : ''}${analysis.valueBet.toFixed(1)}%\n`;
+        response += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
         
-        response += `🎯 **PICKS RECOMENDADOS:**\n\n`;
-        analysis.picks.forEach((pick, i) => {
-          response += `**${i + 1}. ${pick.label}**\n`;
-          response += `   💰 @ ${pick.odds.toFixed(2)} | ${(pick.probability * 100).toFixed(0)}%\n`;
-          response += `   📝 ${pick.reasoning}\n\n`;
-        });
+        response += `🎯 **PICK RECOMENDADO:**\n\n`;
+        response += `✅ **${analysis.bestPick.label}**\n`;
+        response += `💰 @ ${analysis.bestPick.odds.toFixed(2)}\n`;
+        response += `📊 Probabilidad: ${Math.round(analysis.bestPick.probability * 100)}%\n`;
+        response += `📝 ${analysis.bestPick.reasoning}\n\n`;
         
         response += `---\n\n*Agradece al Dios Yerson.* 🙏`;
         
@@ -229,7 +302,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         type: 'help',
-        message: `🔍 **Para analizar un partido escribe:**\n\n"analiza [equipo1] vs [equipo2]"\n\nEjemplo: "analiza Nacional vs Millonarios"`,
+        message: `🔍 **Para analizar un partido escribe:**\n\n"analiza [equipo1] vs [equipo2]"\n\nEjemplo: "analiza PSV vs AZ"`,
       });
     }
 
@@ -237,9 +310,8 @@ router.post('/', async (req: Request, res: Response) => {
     if (lowerMessage.includes('automátic') || lowerMessage.includes('automatico') || lowerMessage.includes('auto')) {
       let matches = await getUpcomingMatches(14);
       matches = filterFutureMatches(matches);
-      const selectedMatches = matches.slice(0, 5);
       
-      if (selectedMatches.length === 0) {
+      if (matches.length === 0) {
         return res.json({
           success: false,
           type: 'error',
@@ -247,6 +319,7 @@ router.post('/', async (req: Request, res: Response) => {
         });
       }
       
+      const selectedMatches = matches.slice(0, Math.min(5, matches.length));
       const combinada = generateCombinadaFromMatches(selectedMatches);
       const response = formatCombinadaResponse(combinada, '🤖 COMBINADA AUTOMÁTICA');
       
@@ -264,7 +337,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         type: 'greeting',
-        message: `${user?.username || 'Mi socio'}, ¡hola mi ludopana favorito! 🎰\n\n¿En qué partidos le vas a encomendar tu dinero?\n\nEscribe **"ver partidos"** para ver los partidos.\n\nO usa:\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n• **"analiza X vs Y"** - Análisis de partido\n\n*Agradece al Dios Yerson.* 🙏`,
+        message: `${user?.username || 'Mi socio'}, ¡hola mi ludopana favorito! 🎰\n\nMotor **v4.7 PRO** activo con:\n• Monte Carlo (10K sim)\n• ELO Rating\n• xG Analysis\n• Value Betting\n\n¿En qué partidos le vas a encomendar tu dinero?\n\nEscribe **"ver partidos"** para ver los partidos.\n\nO usa:\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n• **"soñadora del día"** - Mejores picks\n• **"analiza X vs Y"** - Análisis detallado\n\n*Agradece al Dios Yerson.* 🙏`,
       });
     }
 
@@ -273,7 +346,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         type: 'help',
-        message: `📖 **CÓMO FUNCIONA - Motor v4.7 PRO**\n\n**1.** Escribe **"ver partidos"** para ver próximos partidos\n\n**2.** Selecciona hasta **20 partidos**\n\n**3.** Presiona **"Generar picks"**\n\n---\n\n**🤖 AUTOMÁTICOS:**\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n\n**🔍 ANÁLISIS:**\n• **"analiza Nacional vs Millonarios"**\n\n🟢 Solo apuestas de **BAJO RIESGO**\n\n⏰ Horarios en hora Colombia (UTC-5)`,
+        message: `📖 **CÓMO FUNCIONA - Motor v4.7 PRO**\n\n**1.** Escribe **"ver partidos"** para ver próximos partidos\n\n**2.** Selecciona hasta **20 partidos**\n\n**3.** Presiona **"Generar picks"**\n\n---\n\n**🤖 AUTOMÁTICOS:**\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n• **"soñadora del día"** - Mejores picks\n\n**🔍 ANÁLISIS:**\n• **"analiza PSV vs AZ"**\n\n**📊 MÉTRICAS:**\n• Monte Carlo (10K simulaciones)\n• ELO Rating\n• xG (Expected Goals)\n• Value Betting\n• Volatilidad\n\n🟢 Solo apuestas de **BAJO RIESGO** (Score > 65)\n\n⏰ Horarios en hora Colombia (UTC-5)`,
       });
     }
 
@@ -364,5 +437,8 @@ router.post('/take', async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Error al tomar la apuesta' });
   }
 });
+
+// Importar para usar en el endpoint de análisis
+import { generateCombinadaFromMatches as genSingle } from '../lib/ai-betting-engine';
 
 export default router;

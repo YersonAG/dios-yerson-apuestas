@@ -1,244 +1,153 @@
-// Motor de Análisis Real - El Dios Yerson v4.7 PRO
-// REGLA: SOLO APUESTAS DE BAJO RIESGO
-// Incluye TODAS las ligas de LATAM
+// Motor de Análisis v4.7 PRO - El Dios Yerson
+// CON: Monte Carlo, ELO Rating, xG, Value Betting, Volatilidad
+// REGLA: SOLO APUESTAS DE BAJO RIESGO (Score > 65)
 
 // ==========================================
-// BASE DE DATOS DE EQUIPOS POR LIGA
+// BASE DE DATOS DE EQUIPOS CON ELO Y STATS
 // ==========================================
-const TEAMS_BY_LEAGUE: Record<string, { 
-  name: string; 
-  strength: number; 
-  form: string; 
-  goalsAvg: number;
-  goalsConceded: number;
-  xG: number;
-  homeWinRate: number;
-  awayWinRate: number;
-}[]> = {
-  // ===== EUROPA =====
-  "Premier League": [
-    { name: "Manchester City", strength: 95, form: "WWWDW", goalsAvg: 2.7, goalsConceded: 0.9, xG: 2.5, homeWinRate: 0.85, awayWinRate: 0.75 },
-    { name: "Arsenal", strength: 90, form: "WDWWW", goalsAvg: 2.4, goalsConceded: 1.0, xG: 2.2, homeWinRate: 0.82, awayWinRate: 0.70 },
-    { name: "Liverpool", strength: 92, form: "WWDWW", goalsAvg: 2.5, goalsConceded: 1.1, xG: 2.3, homeWinRate: 0.80, awayWinRate: 0.72 },
-    { name: "Manchester United", strength: 82, form: "WLWDL", goalsAvg: 1.8, goalsConceded: 1.3, xG: 1.7, homeWinRate: 0.65, awayWinRate: 0.50 },
-    { name: "Chelsea", strength: 80, form: "WDWDL", goalsAvg: 1.7, goalsConceded: 1.2, xG: 1.6, homeWinRate: 0.62, awayWinRate: 0.48 },
-    { name: "Tottenham", strength: 78, form: "LWWDL", goalsAvg: 1.9, goalsConceded: 1.4, xG: 1.8, homeWinRate: 0.60, awayWinRate: 0.45 },
-    { name: "Newcastle", strength: 75, form: "WDWDW", goalsAvg: 1.6, goalsConceded: 1.0, xG: 1.5, homeWinRate: 0.70, awayWinRate: 0.42 },
-    { name: "Aston Villa", strength: 72, form: "WWLWD", goalsAvg: 1.5, goalsConceded: 1.3, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.38 },
-    { name: "Brighton", strength: 70, form: "WDLWD", goalsAvg: 1.5, goalsConceded: 1.4, xG: 1.4, homeWinRate: 0.55, awayWinRate: 0.35 },
-    { name: "West Ham", strength: 68, form: "DLWDL", goalsAvg: 1.3, goalsConceded: 1.5, xG: 1.2, homeWinRate: 0.50, awayWinRate: 0.32 },
-  ],
-  "La Liga": [
-    { name: "Real Madrid", strength: 94, form: "WWWWW", goalsAvg: 2.5, goalsConceded: 0.8, xG: 2.4, homeWinRate: 0.88, awayWinRate: 0.72 },
-    { name: "Barcelona", strength: 91, form: "WDWWW", goalsAvg: 2.3, goalsConceded: 0.9, xG: 2.2, homeWinRate: 0.85, awayWinRate: 0.68 },
-    { name: "Atlético Madrid", strength: 85, form: "WDWDW", goalsAvg: 1.8, goalsConceded: 0.7, xG: 1.7, homeWinRate: 0.75, awayWinRate: 0.55 },
-    { name: "Real Sociedad", strength: 76, form: "WDLWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.60, awayWinRate: 0.42 },
-    { name: "Villarreal", strength: 74, form: "DLWWD", goalsAvg: 1.6, goalsConceded: 1.2, xG: 1.5, homeWinRate: 0.58, awayWinRate: 0.40 },
-    { name: "Real Betis", strength: 72, form: "WDLWL", goalsAvg: 1.4, goalsConceded: 1.2, xG: 1.3, homeWinRate: 0.55, awayWinRate: 0.38 },
-    { name: "Athletic Bilbao", strength: 70, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.58, awayWinRate: 0.35 },
-    { name: "Sevilla", strength: 68, form: "DLLWD", goalsAvg: 1.2, goalsConceded: 1.3, xG: 1.1, homeWinRate: 0.50, awayWinRate: 0.30 },
-  ],
-  "Serie A": [
-    { name: "Inter Milan", strength: 90, form: "WDWWW", goalsAvg: 2.3, goalsConceded: 0.8, xG: 2.2, homeWinRate: 0.82, awayWinRate: 0.65 },
-    { name: "Napoli", strength: 85, form: "WDWDW", goalsAvg: 2.1, goalsConceded: 0.9, xG: 2.0, homeWinRate: 0.78, awayWinRate: 0.58 },
-    { name: "AC Milan", strength: 83, form: "WLWDW", goalsAvg: 1.9, goalsConceded: 1.0, xG: 1.8, homeWinRate: 0.72, awayWinRate: 0.52 },
-    { name: "Juventus", strength: 82, form: "WDWDW", goalsAvg: 1.7, goalsConceded: 0.7, xG: 1.6, homeWinRate: 0.70, awayWinRate: 0.55 },
-    { name: "Atalanta", strength: 78, form: "WWLWD", goalsAvg: 2.0, goalsConceded: 1.2, xG: 1.9, homeWinRate: 0.68, awayWinRate: 0.48 },
-    { name: "Roma", strength: 75, form: "WDLWL", goalsAvg: 1.6, goalsConceded: 1.2, xG: 1.5, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Lazio", strength: 72, form: "DLWWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.58, awayWinRate: 0.40 },
-    { name: "Fiorentina", strength: 70, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.2, xG: 1.3, homeWinRate: 0.55, awayWinRate: 0.38 },
-  ],
-  "Bundesliga": [
-    { name: "Bayern Munich", strength: 95, form: "WWWWW", goalsAvg: 3.0, goalsConceded: 0.8, xG: 2.8, homeWinRate: 0.90, awayWinRate: 0.75 },
-    { name: "Borussia Dortmund", strength: 88, form: "WDWWW", goalsAvg: 2.4, goalsConceded: 1.2, xG: 2.3, homeWinRate: 0.78, awayWinRate: 0.58 },
-    { name: "RB Leipzig", strength: 82, form: "WLWDW", goalsAvg: 2.0, goalsConceded: 1.1, xG: 1.9, homeWinRate: 0.70, awayWinRate: 0.52 },
-    { name: "Bayer Leverkusen", strength: 85, form: "WDWDW", goalsAvg: 2.2, goalsConceded: 1.0, xG: 2.1, homeWinRate: 0.75, awayWinRate: 0.55 },
-    { name: "Union Berlin", strength: 70, form: "WDLWD", goalsAvg: 1.3, goalsConceded: 1.1, xG: 1.2, homeWinRate: 0.55, awayWinRate: 0.35 },
-    { name: "Freiburg", strength: 68, form: "DLWWD", goalsAvg: 1.4, goalsConceded: 1.3, xG: 1.3, homeWinRate: 0.52, awayWinRate: 0.32 },
-  ],
-  "Ligue 1": [
-    { name: "PSG", strength: 96, form: "WWWWW", goalsAvg: 2.8, goalsConceded: 0.7, xG: 2.7, homeWinRate: 0.92, awayWinRate: 0.78 },
-    { name: "Monaco", strength: 80, form: "WDWDL", goalsAvg: 1.9, goalsConceded: 1.2, xG: 1.8, homeWinRate: 0.65, awayWinRate: 0.48 },
-    { name: "Marseille", strength: 78, form: "WLWDW", goalsAvg: 1.8, goalsConceded: 1.1, xG: 1.7, homeWinRate: 0.62, awayWinRate: 0.45 },
-    { name: "Lille", strength: 75, form: "WDLWD", goalsAvg: 1.5, goalsConceded: 1.0, xG: 1.4, homeWinRate: 0.58, awayWinRate: 0.42 },
-    { name: "Lyon", strength: 72, form: "DLWDL", goalsAvg: 1.5, goalsConceded: 1.3, xG: 1.4, homeWinRate: 0.55, awayWinRate: 0.38 },
-    { name: "Nice", strength: 70, form: "WDWDL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.52, awayWinRate: 0.35 },
-    { name: "Lens", strength: 72, form: "WDLWD", goalsAvg: 1.5, goalsConceded: 1.0, xG: 1.4, homeWinRate: 0.60, awayWinRate: 0.40 },
+interface TeamData {
+  name: string;
+  elo: number;           // ELO Rating (1200-2000)
+  strength: number;      // Fuerza general (0-100)
+  form: string;          // Últimos 5: W/D/L
+  xG: number;            // Expected Goals promedio
+  xGA: number;           // Expected Goals Against
+  goalsAvg: number;      // Goles promedio por partido
+  goalsConceded: number; // Goles recibidos promedio
+  homeWinRate: number;   // Win rate local
+  awayWinRate: number;   // Win rate visitante
+  consistency: number;   // Consistencia (0-100)
+}
+
+const TEAMS_BY_LEAGUE: Record<string, TeamData[]> = {
+  // ===== HOLANDA - EREDIVISIE =====
+  "Eredivisie": [
+    { name: "PSV", elo: 1780, strength: 82, form: "WWWDW", xG: 2.39, xGA: 0.95, goalsAvg: 2.8, goalsConceded: 0.9, homeWinRate: 0.85, awayWinRate: 0.70, consistency: 85 },
+    { name: "AZ", elo: 1594, strength: 68, form: "WDLWD", xG: 1.27, xGA: 1.35, goalsAvg: 1.5, goalsConceded: 1.4, homeWinRate: 0.55, awayWinRate: 0.42, consistency: 62 },
+    { name: "NEC", elo: 1560, strength: 65, form: "WDWDL", xG: 1.45, xGA: 1.40, goalsAvg: 1.4, goalsConceded: 1.5, homeWinRate: 0.52, awayWinRate: 0.38, consistency: 58 },
+    { name: "FC Volendam", elo: 1480, strength: 55, form: "LDLWL", xG: 1.02, xGA: 1.95, goalsAvg: 1.0, goalsConceded: 2.0, homeWinRate: 0.35, awayWinRate: 0.22, consistency: 45 },
+    { name: "Ajax", elo: 1720, strength: 78, form: "WDWDW", xG: 2.10, xGA: 1.05, goalsAvg: 2.2, goalsConceded: 1.0, homeWinRate: 0.78, awayWinRate: 0.62, consistency: 75 },
+    { name: "Feyenoord", elo: 1690, strength: 75, form: "WLWDW", xG: 1.85, xGA: 1.15, goalsAvg: 1.9, goalsConceded: 1.1, homeWinRate: 0.72, awayWinRate: 0.55, consistency: 70 },
+    { name: "Twente", elo: 1610, strength: 68, form: "WDWDL", xG: 1.55, xGA: 1.25, goalsAvg: 1.5, goalsConceded: 1.3, homeWinRate: 0.58, awayWinRate: 0.42, consistency: 65 },
+    { name: "Utrecht", elo: 1580, strength: 65, form: "WDLWD", xG: 1.40, xGA: 1.35, goalsAvg: 1.4, goalsConceded: 1.4, homeWinRate: 0.52, awayWinRate: 0.40, consistency: 60 },
   ],
   
-  // ===== COLOMBIA - LIGA BETPLAY (COMPLETO) =====
+  // ===== INGLATERRA - PREMIER LEAGUE =====
+  "Premier League": [
+    { name: "Manchester City", elo: 1890, strength: 95, form: "WWWDW", xG: 2.50, xGA: 0.85, goalsAvg: 2.7, goalsConceded: 0.9, homeWinRate: 0.85, awayWinRate: 0.75, consistency: 90 },
+    { name: "Arsenal", elo: 1840, strength: 90, form: "WDWWW", xG: 2.20, xGA: 0.95, goalsAvg: 2.4, goalsConceded: 1.0, homeWinRate: 0.82, awayWinRate: 0.70, consistency: 85 },
+    { name: "Liverpool", elo: 1855, strength: 92, form: "WWDWW", xG: 2.30, xGA: 1.00, goalsAvg: 2.5, goalsConceded: 1.1, homeWinRate: 0.80, awayWinRate: 0.72, consistency: 88 },
+    { name: "Manchester United", elo: 1740, strength: 82, form: "WLWDL", xG: 1.70, xGA: 1.25, goalsAvg: 1.8, goalsConceded: 1.3, homeWinRate: 0.65, awayWinRate: 0.50, consistency: 60 },
+    { name: "Chelsea", elo: 1720, strength: 80, form: "WDWDL", xG: 1.60, xGA: 1.20, goalsAvg: 1.7, goalsConceded: 1.2, homeWinRate: 0.62, awayWinRate: 0.48, consistency: 58 },
+    { name: "Tottenham", elo: 1700, strength: 78, form: "LWWDL", xG: 1.80, xGA: 1.35, goalsAvg: 1.9, goalsConceded: 1.4, homeWinRate: 0.60, awayWinRate: 0.45, consistency: 55 },
+    { name: "Newcastle", elo: 1680, strength: 75, form: "WDWDW", xG: 1.50, xGA: 1.00, goalsAvg: 1.6, goalsConceded: 1.0, homeWinRate: 0.70, awayWinRate: 0.42, consistency: 72 },
+    { name: "Aston Villa", elo: 1660, strength: 72, form: "WWLWD", xG: 1.40, xGA: 1.30, goalsAvg: 1.5, goalsConceded: 1.3, homeWinRate: 0.65, awayWinRate: 0.38, consistency: 65 },
+  ],
+  
+  // ===== ESPAÑA - LA LIGA =====
+  "La Liga": [
+    { name: "Real Madrid", elo: 1880, strength: 94, form: "WWWWW", xG: 2.40, xGA: 0.80, goalsAvg: 2.5, goalsConceded: 0.8, homeWinRate: 0.88, awayWinRate: 0.72, consistency: 92 },
+    { name: "Barcelona", elo: 1850, strength: 91, form: "WDWWW", xG: 2.20, xGA: 0.90, goalsAvg: 2.3, goalsConceded: 0.9, homeWinRate: 0.85, awayWinRate: 0.68, consistency: 85 },
+    { name: "Atlético Madrid", elo: 1790, strength: 85, form: "WDWDW", xG: 1.70, xGA: 0.70, goalsAvg: 1.8, goalsConceded: 0.7, homeWinRate: 0.75, awayWinRate: 0.55, consistency: 80 },
+    { name: "Real Sociedad", elo: 1700, strength: 76, form: "WDLWD", xG: 1.40, xGA: 1.10, goalsAvg: 1.5, goalsConceded: 1.1, homeWinRate: 0.60, awayWinRate: 0.42, consistency: 68 },
+    { name: "Villarreal", elo: 1680, strength: 74, form: "DLWWD", xG: 1.50, xGA: 1.20, goalsAvg: 1.6, goalsConceded: 1.2, homeWinRate: 0.58, awayWinRate: 0.40, consistency: 62 },
+    { name: "Real Betis", elo: 1660, strength: 72, form: "WDLWL", xG: 1.30, xGA: 1.20, goalsAvg: 1.4, goalsConceded: 1.2, homeWinRate: 0.55, awayWinRate: 0.38, consistency: 58 },
+  ],
+  
+  // ===== ITALIA - SERIE A =====
+  "Serie A": [
+    { name: "Inter Milan", elo: 1830, strength: 90, form: "WDWWW", xG: 2.20, xGA: 0.80, goalsAvg: 2.3, goalsConceded: 0.8, homeWinRate: 0.82, awayWinRate: 0.65, consistency: 85 },
+    { name: "Napoli", elo: 1790, strength: 85, form: "WDWDW", xG: 2.00, xGA: 0.90, goalsAvg: 2.1, goalsConceded: 0.9, homeWinRate: 0.78, awayWinRate: 0.58, consistency: 80 },
+    { name: "AC Milan", elo: 1770, strength: 83, form: "WLWDW", xG: 1.80, xGA: 1.00, goalsAvg: 1.9, goalsConceded: 1.0, homeWinRate: 0.72, awayWinRate: 0.52, consistency: 72 },
+    { name: "Juventus", elo: 1760, strength: 82, form: "WDWDW", xG: 1.60, xGA: 0.70, goalsAvg: 1.7, goalsConceded: 0.7, homeWinRate: 0.70, awayWinRate: 0.55, consistency: 78 },
+    { name: "Atalanta", elo: 1730, strength: 78, form: "WWLWD", xG: 1.90, xGA: 1.20, goalsAvg: 2.0, goalsConceded: 1.2, homeWinRate: 0.68, awayWinRate: 0.48, consistency: 70 },
+    { name: "Roma", elo: 1700, strength: 75, form: "WDLWL", xG: 1.50, xGA: 1.20, goalsAvg: 1.6, goalsConceded: 1.2, homeWinRate: 0.62, awayWinRate: 0.42, consistency: 62 },
+  ],
+  
+  // ===== ALEMANIA - BUNDESLIGA =====
+  "Bundesliga": [
+    { name: "Bayern Munich", elo: 1895, strength: 95, form: "WWWWW", xG: 2.80, xGA: 0.80, goalsAvg: 3.0, goalsConceded: 0.8, homeWinRate: 0.90, awayWinRate: 0.75, consistency: 92 },
+    { name: "Borussia Dortmund", elo: 1810, strength: 88, form: "WDWWW", xG: 2.30, xGA: 1.20, goalsAvg: 2.4, goalsConceded: 1.2, homeWinRate: 0.78, awayWinRate: 0.58, consistency: 75 },
+    { name: "RB Leipzig", elo: 1760, strength: 82, form: "WLWDW", xG: 1.90, xGA: 1.10, goalsAvg: 2.0, goalsConceded: 1.1, homeWinRate: 0.70, awayWinRate: 0.52, consistency: 72 },
+    { name: "Bayer Leverkusen", elo: 1800, strength: 85, form: "WDWDW", xG: 2.10, xGA: 1.00, goalsAvg: 2.2, goalsConceded: 1.0, homeWinRate: 0.75, awayWinRate: 0.55, consistency: 80 },
+    { name: "VfB Stuttgart", elo: 1720, strength: 76, form: "WDWDW", xG: 1.80, xGA: 1.15, goalsAvg: 1.8, goalsConceded: 1.2, homeWinRate: 0.65, awayWinRate: 0.48, consistency: 70 },
+  ],
+  
+  // ===== FRANCIA - LIGUE 1 =====
+  "Ligue 1": [
+    { name: "PSG", elo: 1900, strength: 96, form: "WWWWW", xG: 2.70, xGA: 0.70, goalsAvg: 2.8, goalsConceded: 0.7, homeWinRate: 0.92, awayWinRate: 0.78, consistency: 90 },
+    { name: "Monaco", elo: 1740, strength: 80, form: "WDWDL", xG: 1.80, xGA: 1.20, goalsAvg: 1.9, goalsConceded: 1.2, homeWinRate: 0.65, awayWinRate: 0.48, consistency: 65 },
+    { name: "Marseille", elo: 1720, strength: 78, form: "WLWDW", xG: 1.70, xGA: 1.10, goalsAvg: 1.8, goalsConceded: 1.1, homeWinRate: 0.62, awayWinRate: 0.45, consistency: 60 },
+    { name: "Lille", elo: 1690, strength: 75, form: "WDLWD", xG: 1.40, xGA: 1.00, goalsAvg: 1.5, goalsConceded: 1.0, homeWinRate: 0.58, awayWinRate: 0.42, consistency: 68 },
+    { name: "Lyon", elo: 1660, strength: 72, form: "DLWDL", xG: 1.40, xGA: 1.30, goalsAvg: 1.5, goalsConceded: 1.3, homeWinRate: 0.55, awayWinRate: 0.38, consistency: 55 },
+  ],
+  
+  // ===== COLOMBIA - LIGA BETPLAY =====
   "Liga BetPlay": [
-    { name: "Atlético Nacional", strength: 85, form: "WDWDW", goalsAvg: 1.8, goalsConceded: 0.9, xG: 1.7, homeWinRate: 0.75, awayWinRate: 0.55 },
-    { name: "Millonarios", strength: 82, form: "WLWDW", goalsAvg: 1.7, goalsConceded: 1.0, xG: 1.6, homeWinRate: 0.72, awayWinRate: 0.52 },
-    { name: "América de Cali", strength: 78, form: "DWLWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.45 },
-    { name: "Junior de Barranquilla", strength: 76, form: "WDLWL", goalsAvg: 1.4, goalsConceded: 1.2, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Deportivo Cali", strength: 72, form: "LWDLW", goalsAvg: 1.3, goalsConceded: 1.3, xG: 1.2, homeWinRate: 0.55, awayWinRate: 0.38 },
-    { name: "Independiente Santa Fe", strength: 74, form: "WDLWL", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.58, awayWinRate: 0.40 },
-    { name: "Deportes Tolima", strength: 75, form: "WDWDW", goalsAvg: 1.4, goalsConceded: 1.0, xG: 1.3, homeWinRate: 0.60, awayWinRate: 0.42 },
-    { name: "Once Caldas", strength: 68, form: "DLWDL", goalsAvg: 1.2, goalsConceded: 1.3, xG: 1.1, homeWinRate: 0.50, awayWinRate: 0.32 },
-    { name: "Independiente Medellín", strength: 73, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.58, awayWinRate: 0.40 },
-    { name: "Envigado", strength: 65, form: "LDLWL", goalsAvg: 1.0, goalsConceded: 1.5, xG: 0.9, homeWinRate: 0.42, awayWinRate: 0.28 },
-    { name: "La Equidad", strength: 62, form: "DLLWD", goalsAvg: 1.0, goalsConceded: 1.4, xG: 0.9, homeWinRate: 0.40, awayWinRate: 0.25 },
-    { name: "Jaguares de Córdoba", strength: 60, form: "LDLWL", goalsAvg: 0.9, goalsConceded: 1.5, xG: 0.8, homeWinRate: 0.38, awayWinRate: 0.22 },
-    { name: "Patriotas", strength: 58, form: "DLLDL", goalsAvg: 0.8, goalsConceded: 1.6, xG: 0.7, homeWinRate: 0.35, awayWinRate: 0.20 },
-    { name: "Águilas Doradas", strength: 70, form: "WDLWD", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.52, awayWinRate: 0.35 },
-    { name: "Deportivo Pasto", strength: 64, form: "DLWDL", goalsAvg: 1.1, goalsConceded: 1.3, xG: 1.0, homeWinRate: 0.45, awayWinRate: 0.28 },
-    { name: "Cortuluá", strength: 55, form: "LDLDL", goalsAvg: 0.8, goalsConceded: 1.7, xG: 0.7, homeWinRate: 0.32, awayWinRate: 0.18 },
+    { name: "Atlético Nacional", elo: 1650, strength: 85, form: "WDWDW", xG: 1.70, xGA: 0.90, goalsAvg: 1.8, goalsConceded: 0.9, homeWinRate: 0.75, awayWinRate: 0.55, consistency: 78 },
+    { name: "Millonarios", elo: 1620, strength: 82, form: "WLWDW", xG: 1.60, xGA: 1.00, goalsAvg: 1.7, goalsConceded: 1.0, homeWinRate: 0.72, awayWinRate: 0.52, consistency: 72 },
+    { name: "América de Cali", elo: 1580, strength: 78, form: "DWLWD", xG: 1.40, xGA: 1.10, goalsAvg: 1.5, goalsConceded: 1.1, homeWinRate: 0.65, awayWinRate: 0.45, consistency: 65 },
+    { name: "Junior de Barranquilla", elo: 1560, strength: 76, form: "WDLWL", xG: 1.30, xGA: 1.20, goalsAvg: 1.4, goalsConceded: 1.2, homeWinRate: 0.62, awayWinRate: 0.42, consistency: 60 },
+    { name: "Deportivo Cali", elo: 1520, strength: 72, form: "LWDLW", xG: 1.20, xGA: 1.30, goalsAvg: 1.3, goalsConceded: 1.3, homeWinRate: 0.55, awayWinRate: 0.38, consistency: 55 },
+    { name: "Independiente Santa Fe", elo: 1540, strength: 74, form: "WDLWL", xG: 1.20, xGA: 1.20, goalsAvg: 1.3, goalsConceded: 1.2, homeWinRate: 0.58, awayWinRate: 0.40, consistency: 58 },
+    { name: "Deportes Tolima", elo: 1550, strength: 75, form: "WDWDW", xG: 1.30, xGA: 1.00, goalsAvg: 1.4, goalsConceded: 1.0, homeWinRate: 0.60, awayWinRate: 0.42, consistency: 68 },
+    { name: "Once Caldas", elo: 1480, strength: 68, form: "DLWDL", xG: 1.10, xGA: 1.30, goalsAvg: 1.2, goalsConceded: 1.3, homeWinRate: 0.50, awayWinRate: 0.32, consistency: 52 },
+    { name: "Independiente Medellín", elo: 1530, strength: 73, form: "WDLWD", xG: 1.30, xGA: 1.10, goalsAvg: 1.4, goalsConceded: 1.1, homeWinRate: 0.58, awayWinRate: 0.40, consistency: 62 },
   ],
   
   // ===== ARGENTINA - LIGA PROFESIONAL =====
   "Liga Profesional Argentina": [
-    { name: "River Plate", strength: 88, form: "WDWDW", goalsAvg: 2.0, goalsConceded: 0.9, xG: 1.9, homeWinRate: 0.80, awayWinRate: 0.58 },
-    { name: "Boca Juniors", strength: 86, form: "WDLWD", goalsAvg: 1.8, goalsConceded: 0.9, xG: 1.7, homeWinRate: 0.78, awayWinRate: 0.55 },
-    { name: "Racing Club", strength: 78, form: "WDLWW", goalsAvg: 1.6, goalsConceded: 1.0, xG: 1.5, homeWinRate: 0.65, awayWinRate: 0.45 },
-    { name: "Independiente", strength: 75, form: "DLWDL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.60, awayWinRate: 0.40 },
-    { name: "San Lorenzo", strength: 72, form: "WDLWL", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "Estudiantes", strength: 70, form: "WDWDL", goalsAvg: 1.3, goalsConceded: 1.1, xG: 1.2, homeWinRate: 0.55, awayWinRate: 0.35 },
-    { name: "Vélez Sarsfield", strength: 68, form: "DLWWD", goalsAvg: 1.2, goalsConceded: 1.2, xG: 1.1, homeWinRate: 0.52, awayWinRate: 0.32 },
-    { name: "Talleres", strength: 70, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "Huracán", strength: 65, form: "LDLWL", goalsAvg: 1.1, goalsConceded: 1.3, xG: 1.0, homeWinRate: 0.45, awayWinRate: 0.28 },
-    { name: "Gimnasia La Plata", strength: 62, form: "DLLWD", goalsAvg: 1.0, goalsConceded: 1.4, xG: 0.9, homeWinRate: 0.42, awayWinRate: 0.25 },
-    { name: "Rosario Central", strength: 68, form: "WDLWL", goalsAvg: 1.2, goalsConceded: 1.3, xG: 1.1, homeWinRate: 0.50, awayWinRate: 0.30 },
-    { name: "Newell's Old Boys", strength: 66, form: "DLWDL", goalsAvg: 1.1, goalsConceded: 1.3, xG: 1.0, homeWinRate: 0.48, awayWinRate: 0.28 },
-    { name: "Argentinos Juniors", strength: 67, form: "WDWDL", goalsAvg: 1.2, goalsConceded: 1.2, xG: 1.1, homeWinRate: 0.52, awayWinRate: 0.32 },
-    { name: "Tigre", strength: 60, form: "LDLDL", goalsAvg: 0.9, goalsConceded: 1.5, xG: 0.8, homeWinRate: 0.38, awayWinRate: 0.22 },
+    { name: "River Plate", elo: 1720, strength: 88, form: "WDWDW", xG: 1.90, xGA: 0.90, goalsAvg: 2.0, goalsConceded: 0.9, homeWinRate: 0.80, awayWinRate: 0.58, consistency: 78 },
+    { name: "Boca Juniors", elo: 1700, strength: 86, form: "WDLWD", xG: 1.70, xGA: 0.90, goalsAvg: 1.8, goalsConceded: 0.9, homeWinRate: 0.78, awayWinRate: 0.55, consistency: 72 },
+    { name: "Racing Club", elo: 1620, strength: 78, form: "WDLWW", xG: 1.50, xGA: 1.00, goalsAvg: 1.6, goalsConceded: 1.0, homeWinRate: 0.65, awayWinRate: 0.45, consistency: 65 },
+    { name: "Independiente", elo: 1580, strength: 75, form: "DLWDL", xG: 1.30, xGA: 1.10, goalsAvg: 1.4, goalsConceded: 1.1, homeWinRate: 0.60, awayWinRate: 0.40, consistency: 55 },
+    { name: "San Lorenzo", elo: 1550, strength: 72, form: "WDLWL", xG: 1.20, xGA: 1.20, goalsAvg: 1.3, goalsConceded: 1.2, homeWinRate: 0.58, awayWinRate: 0.38, consistency: 52 },
   ],
   
   // ===== BRASIL - BRASILEIRÃO =====
   "Brasileirão": [
-    { name: "Flamengo", strength: 90, form: "WDWDW", goalsAvg: 2.1, goalsConceded: 0.9, xG: 2.0, homeWinRate: 0.82, awayWinRate: 0.60 },
-    { name: "Palmeiras", strength: 88, form: "WDWDW", goalsAvg: 2.0, goalsConceded: 0.8, xG: 1.9, homeWinRate: 0.80, awayWinRate: 0.58 },
-    { name: "Fluminense", strength: 82, form: "WLWDW", goalsAvg: 1.7, goalsConceded: 1.0, xG: 1.6, homeWinRate: 0.72, awayWinRate: 0.50 },
-    { name: "Grêmio", strength: 78, form: "WDLWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.68, awayWinRate: 0.45 },
-    { name: "Athletico Paranaense", strength: 76, form: "WDWDL", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.42 },
-    { name: "São Paulo", strength: 75, form: "WDLWL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Internacional", strength: 74, form: "DLWWD", goalsAvg: 1.4, goalsConceded: 1.2, xG: 1.3, homeWinRate: 0.60, awayWinRate: 0.40 },
-    { name: "Corinthians", strength: 73, form: "WDLWD", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "Atlético Mineiro", strength: 76, form: "WDWDW", goalsAvg: 1.5, goalsConceded: 1.0, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.45 },
-    { name: "Botafogo", strength: 72, form: "WDLWD", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "Santos", strength: 70, form: "DLWDL", goalsAvg: 1.2, goalsConceded: 1.3, xG: 1.1, homeWinRate: 0.55, awayWinRate: 0.35 },
-    { name: "Cruzeiro", strength: 68, form: "LDLWL", goalsAvg: 1.1, goalsConceded: 1.4, xG: 1.0, homeWinRate: 0.50, awayWinRate: 0.32 },
-    { name: "Bahia", strength: 65, form: "DLLWD", goalsAvg: 1.1, goalsConceded: 1.4, xG: 1.0, homeWinRate: 0.48, awayWinRate: 0.30 },
-    { name: "Vasco da Gama", strength: 64, form: "LDLDL", goalsAvg: 1.0, goalsConceded: 1.5, xG: 0.9, homeWinRate: 0.45, awayWinRate: 0.28 },
+    { name: "Flamengo", elo: 1750, strength: 90, form: "WDWDW", xG: 2.00, xGA: 0.90, goalsAvg: 2.1, goalsConceded: 0.9, homeWinRate: 0.82, awayWinRate: 0.60, consistency: 80 },
+    { name: "Palmeiras", elo: 1740, strength: 88, form: "WDWDW", xG: 1.90, xGA: 0.80, goalsAvg: 2.0, goalsConceded: 0.8, homeWinRate: 0.80, awayWinRate: 0.58, consistency: 82 },
+    { name: "Fluminense", elo: 1680, strength: 82, form: "WLWDW", xG: 1.60, xGA: 1.00, goalsAvg: 1.7, goalsConceded: 1.0, homeWinRate: 0.72, awayWinRate: 0.50, consistency: 70 },
+    { name: "Grêmio", elo: 1640, strength: 78, form: "WDLWD", xG: 1.45, xGA: 1.10, goalsAvg: 1.5, goalsConceded: 1.1, homeWinRate: 0.68, awayWinRate: 0.45, consistency: 65 },
+    { name: "Athletico Paranaense", elo: 1620, strength: 76, form: "WDWDL", xG: 1.40, xGA: 1.10, goalsAvg: 1.5, goalsConceded: 1.1, homeWinRate: 0.65, awayWinRate: 0.42, consistency: 62 },
   ],
   
   // ===== MÉXICO - LIGA MX =====
   "Liga MX": [
-    { name: "América", strength: 85, form: "WDWDW", goalsAvg: 1.9, goalsConceded: 0.9, xG: 1.8, homeWinRate: 0.78, awayWinRate: 0.55 },
-    { name: "Chivas Guadalajara", strength: 80, form: "WDLWD", goalsAvg: 1.6, goalsConceded: 1.0, xG: 1.5, homeWinRate: 0.70, awayWinRate: 0.48 },
-    { name: "Rayados Monterrey", strength: 78, form: "WDWDL", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.68, awayWinRate: 0.45 },
-    { name: "Tigres UANL", strength: 76, form: "WLWDW", goalsAvg: 1.5, goalsConceded: 1.0, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.45 },
-    { name: "Cruz Azul", strength: 75, form: "WDLWL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Puebla", strength: 65, form: "DLWDL", goalsAvg: 1.1, goalsConceded: 1.4, xG: 1.0, homeWinRate: 0.48, awayWinRate: 0.30 },
-    { name: "Pachuca", strength: 70, form: "WDWDL", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.55, awayWinRate: 0.35 },
-    { name: "León", strength: 72, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "Santos Laguna", strength: 68, form: "DLWWD", goalsAvg: 1.2, goalsConceded: 1.3, xG: 1.1, homeWinRate: 0.52, awayWinRate: 0.32 },
-    { name: "Toluca", strength: 70, form: "WDLWL", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.55, awayWinRate: 0.35 },
-    { name: "Necaxa", strength: 62, form: "LDLWL", goalsAvg: 1.0, goalsConceded: 1.5, xG: 0.9, homeWinRate: 0.42, awayWinRate: 0.25 },
-    { name: "Atlas", strength: 67, form: "WDLWD", goalsAvg: 1.2, goalsConceded: 1.2, xG: 1.1, homeWinRate: 0.50, awayWinRate: 0.32 },
-    { name: "Club Querétaro", strength: 58, form: "DLLDL", goalsAvg: 0.9, goalsConceded: 1.6, xG: 0.8, homeWinRate: 0.35, awayWinRate: 0.20 },
-    { name: "FC Juárez", strength: 55, form: "LDLDL", goalsAvg: 0.8, goalsConceded: 1.7, xG: 0.7, homeWinRate: 0.32, awayWinRate: 0.18 },
-  ],
-  
-  // ===== COPA LIBERTADORES =====
-  "Copa Libertadores": [
-    { name: "River Plate", strength: 88, form: "WDWDW", goalsAvg: 2.0, goalsConceded: 0.9, xG: 1.9, homeWinRate: 0.80, awayWinRate: 0.58 },
-    { name: "Boca Juniors", strength: 86, form: "WDLWD", goalsAvg: 1.8, goalsConceded: 0.9, xG: 1.7, homeWinRate: 0.78, awayWinRate: 0.55 },
-    { name: "Flamengo", strength: 90, form: "WDWDW", goalsAvg: 2.1, goalsConceded: 0.9, xG: 2.0, homeWinRate: 0.82, awayWinRate: 0.60 },
-    { name: "Palmeiras", strength: 88, form: "WDWDW", goalsAvg: 2.0, goalsConceded: 0.8, xG: 1.9, homeWinRate: 0.80, awayWinRate: 0.58 },
-    { name: "Fluminense", strength: 82, form: "WLWDW", goalsAvg: 1.7, goalsConceded: 1.0, xG: 1.6, homeWinRate: 0.72, awayWinRate: 0.50 },
-    { name: "Atlético Nacional", strength: 85, form: "WDWDW", goalsAvg: 1.8, goalsConceded: 0.9, xG: 1.7, homeWinRate: 0.75, awayWinRate: 0.55 },
-    { name: "Grêmio", strength: 78, form: "WDLWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.68, awayWinRate: 0.45 },
-    { name: "Athletico Paranaense", strength: 76, form: "WDWDL", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.42 },
-    { name: "Millonarios", strength: 82, form: "WLWDW", goalsAvg: 1.7, goalsConceded: 1.0, xG: 1.6, homeWinRate: 0.72, awayWinRate: 0.52 },
-    { name: "Peñarol", strength: 75, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Nacional", strength: 73, form: "WDWDL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.60, awayWinRate: 0.40 },
-    { name: "Colo-Colo", strength: 72, form: "WDLWL", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.58, awayWinRate: 0.38 },
-  ],
-  
-  // ===== COPA SUDAMERICANA =====
-  "Copa Sudamericana": [
-    { name: "Racing Club", strength: 78, form: "WDLWW", goalsAvg: 1.6, goalsConceded: 1.0, xG: 1.5, homeWinRate: 0.65, awayWinRate: 0.45 },
-    { name: "Independiente", strength: 75, form: "DLWDL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.60, awayWinRate: 0.40 },
-    { name: "São Paulo", strength: 75, form: "WDLWL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Corinthians", strength: 73, form: "WDLWD", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "América de Cali", strength: 78, form: "DWLWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.45 },
-    { name: "Junior de Barranquilla", strength: 76, form: "WDLWL", goalsAvg: 1.4, goalsConceded: 1.2, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Talleres", strength: 70, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "Defensa y Justicia", strength: 68, form: "WDWDL", goalsAvg: 1.3, goalsConceded: 1.2, xG: 1.2, homeWinRate: 0.55, awayWinRate: 0.35 },
-  ],
-  
-  // ===== CHILE - PRIMERA DIVISIÓN =====
-  "Primera División Chile": [
-    { name: "Colo-Colo", strength: 78, form: "WDWDW", goalsAvg: 1.6, goalsConceded: 1.0, xG: 1.5, homeWinRate: 0.70, awayWinRate: 0.48 },
-    { name: "Universidad de Chile", strength: 74, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Universidad Católica", strength: 72, form: "WDWDL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.60, awayWinRate: 0.40 },
-    { name: "Palestino", strength: 68, form: "WDLWL", goalsAvg: 1.2, goalsConceded: 1.3, xG: 1.1, homeWinRate: 0.52, awayWinRate: 0.32 },
-    { name: "Coquimbo Unido", strength: 62, form: "DLWDL", goalsAvg: 1.0, goalsConceded: 1.4, xG: 0.9, homeWinRate: 0.42, awayWinRate: 0.25 },
-  ],
-  
-  // ===== ECUADOR - LIGA PRO =====
-  "Liga Pro Ecuador": [
-    { name: "LDU Quito", strength: 75, form: "WDWDW", goalsAvg: 1.6, goalsConceded: 1.0, xG: 1.5, homeWinRate: 0.68, awayWinRate: 0.45 },
-    { name: "Barcelona SC", strength: 73, form: "WDLWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.42 },
-    { name: "Emelec", strength: 72, form: "WDWDL", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.40 },
-    { name: "Independiente del Valle", strength: 70, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.1, xG: 1.3, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "Aucas", strength: 65, form: "DLWDL", goalsAvg: 1.1, goalsConceded: 1.3, xG: 1.0, homeWinRate: 0.48, awayWinRate: 0.30 },
-  ],
-  
-  // ===== URUGUAY - PRIMERA DIVISIÓN =====
-  "Primera División Uruguay": [
-    { name: "Peñarol", strength: 80, form: "WDWDW", goalsAvg: 1.7, goalsConceded: 0.9, xG: 1.6, homeWinRate: 0.72, awayWinRate: 0.50 },
-    { name: "Nacional", strength: 78, form: "WDLWD", goalsAvg: 1.6, goalsConceded: 1.0, xG: 1.5, homeWinRate: 0.70, awayWinRate: 0.48 },
-    { name: "Defensor Sporting", strength: 65, form: "DLWDL", goalsAvg: 1.1, goalsConceded: 1.3, xG: 1.0, homeWinRate: 0.48, awayWinRate: 0.28 },
-    { name: "Danubio", strength: 62, form: "LDLWL", goalsAvg: 1.0, goalsConceded: 1.4, xG: 0.9, homeWinRate: 0.42, awayWinRate: 0.25 },
-  ],
-  
-  // ===== PARAGUAY - PRIMERA DIVISIÓN =====
-  "Primera División Paraguay": [
-    { name: "Olimpia", strength: 75, form: "WDWDW", goalsAvg: 1.5, goalsConceded: 1.0, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.45 },
-    { name: "Cerro Porteño", strength: 73, form: "WDLWD", goalsAvg: 1.4, goalsConceded: 1.0, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Libertad", strength: 70, form: "WDWDL", goalsAvg: 1.3, goalsConceded: 1.1, xG: 1.2, homeWinRate: 0.58, awayWinRate: 0.38 },
-    { name: "Guaraní", strength: 68, form: "WDLWL", goalsAvg: 1.2, goalsConceded: 1.2, xG: 1.1, homeWinRate: 0.55, awayWinRate: 0.35 },
+    { name: "América", elo: 1680, strength: 85, form: "WDWDW", xG: 1.80, xGA: 0.90, goalsAvg: 1.9, goalsConceded: 0.9, homeWinRate: 0.78, awayWinRate: 0.55, consistency: 75 },
+    { name: "Chivas Guadalajara", elo: 1620, strength: 80, form: "WDLWD", xG: 1.50, xGA: 1.00, goalsAvg: 1.6, goalsConceded: 1.0, homeWinRate: 0.70, awayWinRate: 0.48, consistency: 68 },
+    { name: "Rayados Monterrey", elo: 1600, strength: 78, form: "WDWDL", xG: 1.40, xGA: 1.10, goalsAvg: 1.5, goalsConceded: 1.1, homeWinRate: 0.68, awayWinRate: 0.45, consistency: 65 },
+    { name: "Tigres UANL", elo: 1590, strength: 76, form: "WLWDW", xG: 1.40, xGA: 1.00, goalsAvg: 1.5, goalsConceded: 1.0, homeWinRate: 0.65, awayWinRate: 0.45, consistency: 68 },
+    { name: "Cruz Azul", elo: 1570, strength: 75, form: "WDLWL", xG: 1.30, xGA: 1.10, goalsAvg: 1.4, goalsConceded: 1.1, homeWinRate: 0.62, awayWinRate: 0.42, consistency: 60 },
   ],
   
   // ===== CHAMPIONS LEAGUE =====
   "Champions League": [
-    { name: "Real Madrid", strength: 94, form: "WWWWW", goalsAvg: 2.5, goalsConceded: 0.8, xG: 2.4, homeWinRate: 0.88, awayWinRate: 0.72 },
-    { name: "Manchester City", strength: 95, form: "WWWDW", goalsAvg: 2.7, goalsConceded: 0.9, xG: 2.5, homeWinRate: 0.85, awayWinRate: 0.75 },
-    { name: "Bayern Munich", strength: 95, form: "WWWWW", goalsAvg: 3.0, goalsConceded: 0.8, xG: 2.8, homeWinRate: 0.90, awayWinRate: 0.75 },
-    { name: "PSG", strength: 96, form: "WWWWW", goalsAvg: 2.8, goalsConceded: 0.7, xG: 2.7, homeWinRate: 0.92, awayWinRate: 0.78 },
-    { name: "Barcelona", strength: 91, form: "WDWWW", goalsAvg: 2.3, goalsConceded: 0.9, xG: 2.2, homeWinRate: 0.85, awayWinRate: 0.68 },
-    { name: "Inter Milan", strength: 90, form: "WDWWW", goalsAvg: 2.3, goalsConceded: 0.8, xG: 2.2, homeWinRate: 0.82, awayWinRate: 0.65 },
-    { name: "Arsenal", strength: 90, form: "WDWWW", goalsAvg: 2.4, goalsConceded: 1.0, xG: 2.2, homeWinRate: 0.82, awayWinRate: 0.70 },
-    { name: "Napoli", strength: 85, form: "WDWDW", goalsAvg: 2.1, goalsConceded: 0.9, xG: 2.0, homeWinRate: 0.78, awayWinRate: 0.58 },
+    { name: "Real Madrid", elo: 1900, strength: 94, form: "WWWWW", xG: 2.50, xGA: 0.80, goalsAvg: 2.5, goalsConceded: 0.8, homeWinRate: 0.90, awayWinRate: 0.75, consistency: 95 },
+    { name: "Manchester City", elo: 1905, strength: 95, form: "WWWDW", xG: 2.60, xGA: 0.85, goalsAvg: 2.7, goalsConceded: 0.9, homeWinRate: 0.88, awayWinRate: 0.78, consistency: 92 },
+    { name: "Bayern Munich", elo: 1895, strength: 95, form: "WWWWW", xG: 2.80, xGA: 0.80, goalsAvg: 3.0, goalsConceded: 0.8, homeWinRate: 0.92, awayWinRate: 0.78, consistency: 90 },
+    { name: "PSG", elo: 1890, strength: 96, form: "WWWWW", xG: 2.70, xGA: 0.70, goalsAvg: 2.8, goalsConceded: 0.7, homeWinRate: 0.92, awayWinRate: 0.80, consistency: 88 },
+    { name: "Barcelona", elo: 1860, strength: 91, form: "WDWWW", xG: 2.20, xGA: 0.90, goalsAvg: 2.3, goalsConceded: 0.9, homeWinRate: 0.85, awayWinRate: 0.70, consistency: 82 },
+    { name: "Inter Milan", elo: 1840, strength: 90, form: "WDWWW", xG: 2.20, xGA: 0.80, goalsAvg: 2.3, goalsConceded: 0.8, homeWinRate: 0.85, awayWinRate: 0.68, consistency: 85 },
+    { name: "Arsenal", elo: 1850, strength: 90, form: "WDWWW", xG: 2.30, xGA: 0.95, goalsAvg: 2.4, goalsConceded: 1.0, homeWinRate: 0.85, awayWinRate: 0.72, consistency: 85 },
+    { name: "Chelsea FC", elo: 1780, strength: 82, form: "WDWDL", xG: 1.70, xGA: 1.10, goalsAvg: 1.8, goalsConceded: 1.1, homeWinRate: 0.70, awayWinRate: 0.52, consistency: 65 },
+  ],
+  
+  // ===== COPA LIBERTADORES =====
+  "Copa Libertadores": [
+    { name: "River Plate", elo: 1720, strength: 88, form: "WDWDW", xG: 1.90, xGA: 0.90, goalsAvg: 2.0, goalsConceded: 0.9, homeWinRate: 0.80, awayWinRate: 0.60, consistency: 78 },
+    { name: "Boca Juniors", elo: 1700, strength: 86, form: "WDLWD", xG: 1.70, xGA: 0.90, goalsAvg: 1.8, goalsConceded: 0.9, homeWinRate: 0.78, awayWinRate: 0.58, consistency: 75 },
+    { name: "Flamengo", elo: 1750, strength: 90, form: "WDWDW", xG: 2.00, xGA: 0.90, goalsAvg: 2.1, goalsConceded: 0.9, homeWinRate: 0.82, awayWinRate: 0.62, consistency: 80 },
+    { name: "Palmeiras", elo: 1740, strength: 88, form: "WDWDW", xG: 1.90, xGA: 0.80, goalsAvg: 2.0, goalsConceded: 0.8, homeWinRate: 0.80, awayWinRate: 0.60, consistency: 82 },
+    { name: "Fluminense", elo: 1690, strength: 82, form: "WLWDW", xG: 1.60, xGA: 1.00, goalsAvg: 1.7, goalsConceded: 1.0, homeWinRate: 0.72, awayWinRate: 0.52, consistency: 70 },
+    { name: "Atlético Nacional", elo: 1660, strength: 85, form: "WDWDW", xG: 1.70, xGA: 0.90, goalsAvg: 1.8, goalsConceded: 0.9, homeWinRate: 0.75, awayWinRate: 0.55, consistency: 75 },
   ],
 };
-
-const LEAGUES = Object.keys(TEAMS_BY_LEAGUE);
 
 // ==========================================
 // INTERFACES
 // ==========================================
-export interface AvailableMatch {
-  id: string;
-  homeTeam: string;
-  awayTeam: string;
-  league: string;
-  country: string;
-  matchDate: string;
-  homeStrength: number;
-  awayStrength: number;
-  homeForm: string;
-  awayForm: string;
-  homeGoalsAvg: number;
-  awayGoalsAvg: number;
-  homeXG: number;
-  awayXG: number;
-  homeWinRate: number;
-  awayWinRate: number;
-}
-
 export interface MatchPick {
   matchId: string;
   homeTeam: string;
@@ -249,6 +158,12 @@ export interface MatchPick {
   odds: number;
   probability: number;
   analysis: string;
+  score: number;
+  monteCarloProb: number;
+  eloDiff: number;
+  xGTotal: number;
+  volatility: number;
+  valueBet: number;
   status: 'pending' | 'live' | 'won' | 'lost';
 }
 
@@ -257,18 +172,34 @@ export interface Combinada {
   picks: MatchPick[];
   totalOdds: number;
   totalProbability: number;
+  score: number;
   risk: 'low';
   status: 'pending' | 'live' | 'won' | 'lost';
   taken: boolean;
 }
 
+export interface MatchAnalysis {
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  score: number;
+  eloDiff: number;
+  xGTotal: number;
+  monteCarloProb: number;
+  volatility: number;
+  valueBet: number;
+  bestPick: {
+    label: string;
+    probability: number;
+    odds: number;
+    reasoning: string;
+  };
+}
+
 // ==========================================
-// FUNCIÓN PRINCIPAL: BUSCAR EQUIPO EN LA BD
+// FUNCIONES DE BÚSQUEDA
 // ==========================================
-function findTeamInDatabase(teamName: string): { 
-  team: typeof TEAMS_BY_LEAGUE[string][0] | null; 
-  league: string | null;
-} {
+function findTeamInDatabase(teamName: string): { team: TeamData | null; league: string | null } {
   const normalizedTeam = teamName.toLowerCase().trim();
   
   for (const [leagueName, teams] of Object.entries(TEAMS_BY_LEAGUE)) {
@@ -276,7 +207,7 @@ function findTeamInDatabase(teamName: string): {
       if (team.name.toLowerCase() === normalizedTeam) {
         return { team, league: leagueName };
       }
-      // Búsqueda flexible (parcial)
+      // Búsqueda flexible
       if (team.name.toLowerCase().includes(normalizedTeam) || 
           normalizedTeam.includes(team.name.toLowerCase())) {
         return { team, league: leagueName };
@@ -288,160 +219,238 @@ function findTeamInDatabase(teamName: string): {
 }
 
 // ==========================================
-// FUNCIÓN PRINCIPAL: ANALIZAR PARTIDO
+// MONTE CARLO SIMULATION (10K iteraciones)
 // ==========================================
-interface LowRiskPick {
-  label: string;
-  probability: number;
-  odds: number;
-  reasoning: string;
+function monteCarloSimulation(
+  homeXG: number, 
+  awayXG: number, 
+  homeStrength: number, 
+  awayStrength: number,
+  iterations: number = 10000
+): { homeWinProb: number; drawProb: number; awayWinProb: number; over15Prob: number; over25Prob: number } {
+  
+  let homeWins = 0;
+  let draws = 0;
+  let awayWins = 0;
+  let over15 = 0;
+  let over25 = 0;
+  
+  const strengthFactor = (homeStrength - awayStrength) / 100;
+  const adjustedHomeXG = homeXG * (1 + strengthFactor * 0.15);
+  const adjustedAwayXG = awayXG * (1 - strengthFactor * 0.10);
+  
+  for (let i = 0; i < iterations; i++) {
+    // Simular goles con distribución Poisson
+    const homeGoals = poissonRandom(adjustedHomeXG);
+    const awayGoals = poissonRandom(adjustedAwayXG);
+    
+    if (homeGoals > awayGoals) homeWins++;
+    else if (homeGoals < awayGoals) awayWins++;
+    else draws++;
+    
+    if (homeGoals + awayGoals > 1.5) over15++;
+    if (homeGoals + awayGoals > 2.5) over25++;
+  }
+  
+  return {
+    homeWinProb: homeWins / iterations,
+    drawProb: draws / iterations,
+    awayWinProb: awayWins / iterations,
+    over15Prob: over15 / iterations,
+    over25Prob: over25 / iterations,
+  };
 }
 
-export function analyzeMatch(homeTeamName: string, awayTeamName: string, leagueName?: string): {
-  homeTeam: string;
-  awayTeam: string;
-  league: string;
-  picks: LowRiskPick[];
-  stats: {
-    homeStrength: number;
-    awayStrength: number;
-    diff: number;
-    homeForm: string;
-    awayForm: string;
-    homeWinRateForm: number;
-    awayWinRateForm: number;
-    totalGoalsAvg: number;
-    totalXG: number;
+// Distribución Poisson para simular goles
+function poissonRandom(lambda: number): number {
+  const L = Math.exp(-lambda);
+  let k = 0;
+  let p = 1;
+  
+  do {
+    k++;
+    p *= Math.random();
+  } while (p > L);
+  
+  return k - 1;
+}
+
+// ==========================================
+// CALCULAR SCORE TOTAL (0-100)
+// ==========================================
+function calculateMatchScore(
+  eloDiff: number,
+  xGGap: number,
+  offensivePower: number,
+  defensiveSolid: number,
+  form: number,
+  homeAdvantage: number,
+  consistency: number,
+  volatility: number,
+  monteCarloProb: number
+): number {
+  // Pesos del motor v4.7 PRO
+  const weights = {
+    monteCarlo: 0.30,      // 30%
+    elo: 0.20,             // 20%
+    xGGap: 0.10,           // 10%
+    offensive: 0.08,       // 8%
+    defensive: 0.08,       // 8%
+    form: 0.10,            // 10%
+    homeAdvantage: 0.05,   // 5%
+    consistency: 0.05,     // 5%
+    volatility: 0.04,      // 4%
   };
-} {
+  
+  // Normalizar ELO diff (0-100)
+  const eloScore = Math.min(100, Math.max(0, 50 + eloDiff / 8));
+  
+  // Normalizar xG Gap (0-100)
+  const xGScore = Math.min(100, Math.max(0, 50 + xGGap * 20));
+  
+  // Volatilidad invertida (menos volatilidad = mejor score)
+  const volatilityScore = 100 - volatility;
+  
+  // Score final ponderado
+  const score = 
+    monteCarloProb * 100 * weights.monteCarlo +
+    eloScore * weights.elo +
+    xGScore * weights.xGGap +
+    offensivePower * weights.offensive +
+    defensiveSolid * weights.defensive +
+    form * weights.form +
+    homeAdvantage * weights.homeAdvantage +
+    consistency * weights.consistency +
+    volatilityScore * weights.volatility;
+  
+  return Math.round(score * 10) / 10;
+}
+
+// ==========================================
+// ANÁLISIS PRINCIPAL DE PARTIDO
+// ==========================================
+export function analyzeMatch(homeTeamName: string, awayTeamName: string, leagueName?: string): MatchAnalysis {
   const homeData = findTeamInDatabase(homeTeamName);
   const awayData = findTeamInDatabase(awayTeamName);
   
-  // Valores por defecto si no encontramos el equipo
-  const homeTeam = homeData.team || { 
-    name: homeTeamName, 
-    strength: 65, 
-    form: "WDLWD", 
-    goalsAvg: 1.2, 
-    goalsConceded: 1.3, 
-    xG: 1.1, 
-    homeWinRate: 0.50, 
-    awayWinRate: 0.35 
-  };
-  const awayTeam = awayData.team || { 
-    name: awayTeamName, 
-    strength: 65, 
-    form: "WDLWD", 
-    goalsAvg: 1.2, 
-    goalsConceded: 1.3, 
-    xG: 1.1, 
-    homeWinRate: 0.50, 
-    awayWinRate: 0.35 
+  // Valores por defecto si no encuentra el equipo
+  const defaultTeam: TeamData = {
+    name: "Unknown",
+    elo: 1500,
+    strength: 65,
+    form: "WDLWD",
+    xG: 1.2,
+    xGA: 1.3,
+    goalsAvg: 1.2,
+    goalsConceded: 1.3,
+    homeWinRate: 0.50,
+    awayWinRate: 0.35,
+    consistency: 55,
   };
   
+  const homeTeam = homeData.team || { ...defaultTeam, name: homeTeamName };
+  const awayTeam = awayData.team || { ...defaultTeam, name: awayTeamName };
   const league = homeData.league || awayData.league || leagueName || "Liga Desconocida";
   
-  const picks: LowRiskPick[] = [];
-  const diff = homeTeam.strength - awayTeam.strength;
-  const homeWinRateForm = homeTeam.form.split('').filter(c => c === 'W').length / 5;
-  const awayWinRateForm = awayTeam.form.split('').filter(c => c === 'W').length / 5;
-  const totalGoalsAvg = homeTeam.goalsAvg + awayTeam.goalsAvg;
-  const totalXG = homeTeam.xG + awayTeam.xG;
+  // ===== CALCULAR MÉTRICAS =====
+  const eloDiff = homeTeam.elo - awayTeam.elo;
+  const xGTotal = homeTeam.xG + awayTeam.xG;
+  const xGGap = homeTeam.xG - awayTeam.xGA;
   
-  // ===== DOBLE OPORTUNIDAD 1X =====
-  if (diff > 3 || homeTeam.homeWinRate > 0.50) {
-    const prob = Math.min(0.85, 0.55 + (diff * 0.005) + (homeWinRateForm * 0.15) + (homeTeam.homeWinRate - 0.5) * 0.10);
-    const homeFormWins = homeTeam.form.split('').filter(c => c === 'W').length;
-    picks.push({
+  // Forma reciente (W=1, D=0.5, L=0)
+  const calcForm = (form: string) => {
+    return form.split('').reduce((acc, c) => {
+      if (c === 'W') return acc + 1;
+      if (c === 'D') return acc + 0.5;
+      return acc;
+    }, 0) / 5 * 100;
+  };
+  
+  const homeFormScore = calcForm(homeTeam.form);
+  const awayFormScore = calcForm(awayTeam.form);
+  
+  // Monte Carlo
+  const mc = monteCarloSimulation(homeTeam.xG, awayTeam.xG, homeTeam.strength, awayTeam.strength);
+  
+  // Poder ofensivo y defensivo (0-100)
+  const offensivePower = Math.min(100, (homeTeam.xG / 2.5) * 80 + (homeTeam.goalsAvg / 3) * 20);
+  const defensiveSolid = Math.min(100, 100 - (homeTeam.xGA / 2) * 50 - (homeTeam.goalsConceded / 2) * 50);
+  
+  // Ventaja local (0-100)
+  const homeAdvantage = homeTeam.homeWinRate * 100;
+  
+  // Volatilidad (0-100) - basada en consistencia y diferencia de ELO
+  const volatility = Math.max(0, 100 - homeTeam.consistency + Math.abs(eloDiff) / 30);
+  
+  // Value Bet
+  const impliedProb = 1 / (1.25); // Cuota típica de over 1.5
+  const valueBet = Math.round((mc.over15Prob - impliedProb) * 100);
+  
+  // Score total
+  const score = calculateMatchScore(
+    eloDiff,
+    xGGap,
+    offensivePower,
+    defensiveSolid,
+    homeFormScore,
+    homeAdvantage,
+    homeTeam.consistency,
+    volatility,
+    mc.over15Prob
+  );
+  
+  // ===== GENERAR PICK =====
+  let bestPick = {
+    label: 'Más de 1.5 goles',
+    probability: mc.over15Prob,
+    odds: Math.round((1 / mc.over15Prob) * 100) / 100,
+    reasoning: `xG Total: ${xGTotal.toFixed(2)} (${homeTeam.name} ${homeTeam.xG.toFixed(2)} - ${awayTeam.name} ${awayTeam.xG.toFixed(2)})`,
+  };
+  
+  // Si hay diferencia de ELO grande, sugerir doble oportunidad
+  if (eloDiff > 150) {
+    const prob = Math.min(0.92, mc.homeWinProb + mc.drawProb);
+    bestPick = {
       label: `${homeTeam.name} gana o empata (1X)`,
       probability: prob,
       odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `${homeTeam.name} (fuerza ${homeTeam.strength}) vs ${awayTeam.name} (${awayTeam.strength}). Forma: ${homeFormWins}/5 victorias. Win rate local: ${Math.round(homeTeam.homeWinRate * 100)}%.`
-    });
-  }
-  
-  // ===== DOBLE OPORTUNIDAD X2 =====
-  if (diff < -3 || awayTeam.awayWinRate > 0.40) {
-    const prob = Math.min(0.85, 0.55 + (Math.abs(diff) * 0.005) + (awayWinRateForm * 0.12) + (awayTeam.awayWinRate - 0.35) * 0.10);
-    const awayFormWins = awayTeam.form.split('').filter(c => c === 'W').length;
-    picks.push({
+      reasoning: `ELO Diff: +${eloDiff} (${homeTeam.name} claro favorito). Monte Carlo: ${Math.round(prob * 100)}%`,
+    };
+  } else if (eloDiff < -150) {
+    const prob = Math.min(0.92, mc.awayWinProb + mc.drawProb);
+    bestPick = {
       label: `${awayTeam.name} gana o empata (X2)`,
       probability: prob,
       odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `${awayTeam.name} (fuerza ${awayTeam.strength}) como visitante. Forma: ${awayFormWins}/5 victorias. Win rate visitante: ${Math.round(awayTeam.awayWinRate * 100)}%.`
-    });
-  }
-  
-  // ===== MÁS DE 1.5 GOLES =====
-  if (totalGoalsAvg > 2.2 || totalXG > 2.2) {
-    const prob = Math.min(0.90, 0.68 + (totalGoalsAvg - 2) * 0.06);
-    picks.push({
+      reasoning: `ELO Diff: ${eloDiff} (${awayTeam.name} claro favorito). Monte Carlo: ${Math.round(prob * 100)}%`,
+    };
+  } else if (mc.over15Prob > 0.75) {
+    bestPick = {
       label: 'Más de 1.5 goles',
-      probability: prob,
-      odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `Promedio combinado: ${totalGoalsAvg.toFixed(1)} goles/partido. xG total: ${totalXG.toFixed(1)}.`
-    });
-  }
-  
-  // ===== MÁS DE 0.5 GOLES (MT) =====
-  if (totalGoalsAvg > 1.8) {
-    const prob = Math.min(0.95, 0.82 + (totalGoalsAvg - 2) * 0.04);
-    picks.push({
-      label: 'Más de 0.5 goles (1er tiempo)',
-      probability: prob,
-      odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `Equipos ofensivos con ${totalGoalsAvg.toFixed(1)} goles promedio.`
-    });
-  }
-  
-  // ===== MENOS DE 4.5 GOLES =====
-  if (totalGoalsAvg < 3.8) {
-    const prob = Math.min(0.95, 0.78 + (3.5 - totalGoalsAvg) * 0.06);
-    picks.push({
-      label: 'Menos de 4.5 goles',
-      probability: prob,
-      odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `Partido cerrado esperado. Promedio: ${totalGoalsAvg.toFixed(1)} goles.`
-    });
-  }
-  
-  // ===== MENOS DE 3.5 GOLES =====
-  if (totalGoalsAvg < 2.8) {
-    const prob = Math.min(0.92, 0.70 + (3 - totalGoalsAvg) * 0.08);
-    picks.push({
-      label: 'Menos de 3.5 goles',
-      probability: prob,
-      odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `Defensas sólidas. Goles esperados: ~${totalGoalsAvg.toFixed(1)}.`
-    });
-  }
-  
-  // Si no hay picks, agregar uno por defecto
-  if (picks.length === 0) {
-    picks.push({
-      label: `${homeTeam.name} gana o empata (1X)`,
-      probability: 0.68,
-      odds: 1.47,
-      reasoning: `Pick conservador. Datos limitados para análisis profundo.`
-    });
+      probability: mc.over15Prob,
+      odds: Math.round((1 / mc.over15Prob) * 100) / 100,
+      reasoning: `xG Total: ${xGTotal.toFixed(2)}. Monte Carlo: ${Math.round(mc.over15Prob * 100)}% probabilidad`,
+    };
+  } else if (mc.over25Prob > 0.55) {
+    bestPick = {
+      label: 'Más de 2.5 goles',
+      probability: mc.over25Prob,
+      odds: Math.round((1 / mc.over25Prob) * 100) / 100,
+      reasoning: `xG Total: ${xGTotal.toFixed(2)}. Monte Carlo: ${Math.round(mc.over25Prob * 100)}% probabilidad`,
+    };
   }
   
   return {
     homeTeam: homeTeam.name,
     awayTeam: awayTeam.name,
     league,
-    picks: picks.sort((a, b) => b.probability - a.probability),
-    stats: {
-      homeStrength: homeTeam.strength,
-      awayStrength: awayTeam.strength,
-      diff,
-      homeForm: homeTeam.form,
-      awayForm: awayTeam.form,
-      homeWinRateForm,
-      awayWinRateForm,
-      totalGoalsAvg,
-      totalXG
-    }
+    score,
+    eloDiff,
+    xGTotal,
+    monteCarloProb: mc.over15Prob,
+    volatility,
+    valueBet,
+    bestPick,
   };
 }
 
@@ -457,74 +466,63 @@ export function generatePickForMatch(match: {
 }): MatchPick {
   const analysis = analyzeMatch(match.homeTeam, match.awayTeam, match.league);
   
-  // FILTRAR: NO incluir "Más de 0.5 goles" - muy genérico y poco específico
-  // Solo excluir exactamente "0.5 goles", no "1.5" ni otros
-  const validPicks = analysis.picks.filter(p => {
-    const label = p.label.toLowerCase();
-    // Excluir solo "0.5 goles" (muy genérico)
-    if (label.includes('0.5 goles') || label.includes('0.5 gole')) {
-      return false;
-    }
-    return true;
-  });
-  
-  // Si no quedan picks válidos, usar el por defecto
-  if (validPicks.length === 0) {
-    return {
-      matchId: match.id,
-      homeTeam: analysis.homeTeam,
-      awayTeam: analysis.awayTeam,
-      league: analysis.league,
-      matchDate: match.matchDate,
-      pick: `${analysis.homeTeam} gana o empata (1X)`,
-      odds: 1.45,
-      probability: 0.69,
-      analysis: `Pick conservador. ${analysis.homeTeam} (${analysis.stats.homeStrength}) vs ${analysis.awayTeam} (${analysis.stats.awayStrength}).`,
-      status: 'pending'
-    };
-  }
-  
-  // ELEGIR el pick de MENOR RIESGO (mayor probabilidad)
-  // Ya están ordenados por probabilidad descendente
-  const bestPick = validPicks[0];
-  
   return {
     matchId: match.id,
     homeTeam: analysis.homeTeam,
     awayTeam: analysis.awayTeam,
     league: analysis.league,
     matchDate: match.matchDate,
-    pick: bestPick.label,
-    odds: bestPick.odds,
-    probability: bestPick.probability,
-    analysis: bestPick.reasoning,
-    status: 'pending'
+    pick: analysis.bestPick.label,
+    odds: analysis.bestPick.odds,
+    probability: analysis.bestPick.probability,
+    analysis: analysis.bestPick.reasoning,
+    score: analysis.score,
+    monteCarloProb: analysis.monteCarloProb,
+    eloDiff: analysis.eloDiff,
+    xGTotal: analysis.xGTotal,
+    volatility: analysis.volatility,
+    valueBet: analysis.valueBet,
+    status: 'pending',
   };
 }
 
 // ==========================================
-// GENERAR COMBINADA DESDE PARTIDOS SELECCIONADOS
+// GENERAR COMBINADA DESDE PARTIDOS
 // ==========================================
 export function generateCombinadaFromMatches(
   selectedMatches: { id: string; homeTeam: string; awayTeam: string; league: string; matchDate: string }[]
 ): Combinada {
-  const matchPicks: MatchPick[] = selectedMatches.map(match => generatePickForMatch(match));
+  // Analizar todos los partidos
+  const allPicks = selectedMatches.map(match => generatePickForMatch(match));
+  
+  // FILTRAR: Solo picks con Score > 65 (BAJO RIESGO)
+  const goodPicks = allPicks.filter(p => p.score >= 65);
+  
+  // Ordenar por score descendente
+  goodPicks.sort((a, b) => b.score - a.score);
+  
+  // Limitar a los mejores
+  const matchPicks = goodPicks;
   
   const totalOdds = Math.round(matchPicks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
   const totalProbability = Math.round(matchPicks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
+  const avgScore = matchPicks.length > 0 
+    ? Math.round(matchPicks.reduce((acc, p) => acc + p.score, 0) / matchPicks.length)
+    : 0;
   
   return {
     id: `comb_${Date.now()}`,
     picks: matchPicks,
     totalOdds,
     totalProbability,
+    score: avgScore,
     risk: 'low',
     status: 'pending',
-    taken: false
+    taken: false,
   };
 }
 
 // ==========================================
-// EXPORTAR DATOS
+// EXPORTS
 // ==========================================
-export { LEAGUES, TEAMS_BY_LEAGUE };
+export { TEAMS_BY_LEAGUE };
