@@ -99,14 +99,14 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
     return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime() + 30 * 60 * 1000);
   }
   
-  console.log('🌐 Obteniendo TODOS los partidos de ESPN...');
+  console.log('🌐 Obteniendo TODOS los partidos de ESPN (paralelo)...');
+  const startTime = Date.now();
   
   const allMatches: MatchForApp[] = [];
   const seenIds = new Set<string>();
   
-  for (const league of ESPN_LEAGUES) {
-    await new Promise(r => setTimeout(r, 80)); // Pequeño delay para no saturar
-    
+  // 🚀 OPTIMIZACIÓN: Hacer todas las peticiones en paralelo con Promise.all
+  const requests = ESPN_LEAGUES.map(async (league) => {
     try {
       const response = await fetch(
         `${ESPN_API}/${league.code}/scoreboard`,
@@ -116,58 +116,69 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
         }
       );
       
-      if (!response.ok) continue;
+      if (!response.ok) return { league, events: [] };
       
       const data = await response.json();
-      const events = data.events || [];
-      
-      for (const event of events) {
-        // Saltar partidos ya terminados
-        if (event.status?.type?.completed === true) continue;
-        
-        const matchId = `espn_${event.id}`;
-        if (seenIds.has(matchId)) continue;
-        seenIds.add(matchId);
-        
-        const competition = event.competitions?.[0];
-        const homeTeam = competition?.competitors?.find((c: any) => c.homeAway === 'home');
-        const awayTeam = competition?.competitors?.find((c: any) => c.homeAway === 'away');
-        
-        // Determinar estado
-        let status = 'Scheduled';
-        if (event.status?.type?.state === 'in') {
-          status = 'LIVE';
-        } else if (event.status?.type?.completed) {
-          status = 'FT';
-        } else if (event.status?.type?.shortDetail) {
-          status = event.status.type.shortDetail;
-        }
-        
-        allMatches.push({
-          id: matchId,
-          homeTeam: homeTeam?.team?.displayName || homeTeam?.team?.name || 'TBD',
-          awayTeam: awayTeam?.team?.displayName || awayTeam?.team?.name || 'TBD',
-          league: league.name,
-          country: league.country,
-          matchDate: event.date,
-          status,
-          homeLogo: homeTeam?.team?.logo || homeTeam?.team?.logoHref,
-          awayLogo: awayTeam?.team?.logo || awayTeam?.team?.logoHref,
-          leagueLogo: data.leagues?.[0]?.logos?.[0]?.href,
-          homeTeamId: parseInt(homeTeam?.team?.id || '0'),
-          awayTeamId: parseInt(awayTeam?.team?.id || '0'),
-        });
-      }
-      
-      if (events.length > 0) {
-        const upcoming = events.filter((e: any) => !e.status?.type?.completed).length;
-        console.log(`  ✅ ${league.name}: ${upcoming} próximos`);
-      }
+      return { league, events: data.events || [], leagueData: data };
       
     } catch (error) {
-      // Silencioso - continuar con siguiente liga
+      return { league, events: [] };
+    }
+  });
+  
+  // Ejecutar todas las peticiones en paralelo
+  const results = await Promise.all(requests);
+  
+  // Procesar resultados
+  for (const { league, events, leagueData } of results) {
+    for (const event of events) {
+      // Saltar partidos ya terminados
+      if (event.status?.type?.completed === true) continue;
+      
+      const matchId = `espn_${event.id}`;
+      if (seenIds.has(matchId)) continue;
+      seenIds.add(matchId);
+      
+      const competition = event.competitions?.[0];
+      const homeTeam = competition?.competitors?.find((c: any) => c.homeAway === 'home');
+      const awayTeam = competition?.competitors?.find((c: any) => c.homeAway === 'away');
+      
+      // Determinar estado
+      let status = 'Scheduled';
+      if (event.status?.type?.state === 'in') {
+        status = 'LIVE';
+      } else if (event.status?.type?.completed) {
+        status = 'FT';
+      } else if (event.status?.type?.shortDetail) {
+        status = event.status.type.shortDetail;
+      }
+      
+      allMatches.push({
+        id: matchId,
+        homeTeam: homeTeam?.team?.displayName || homeTeam?.team?.name || 'TBD',
+        awayTeam: awayTeam?.team?.displayName || awayTeam?.team?.name || 'TBD',
+        league: league.name,
+        country: league.country,
+        matchDate: event.date,
+        status,
+        homeLogo: homeTeam?.team?.logo || homeTeam?.team?.logoHref,
+        awayLogo: awayTeam?.team?.logo || awayTeam?.team?.logoHref,
+        leagueLogo: leagueData?.leagues?.[0]?.logos?.[0]?.href,
+        homeTeamId: parseInt(homeTeam?.team?.id || '0'),
+        awayTeamId: parseInt(awayTeam?.team?.id || '0'),
+      });
+    }
+    
+    if (events.length > 0) {
+      const upcoming = events.filter((e: any) => !e.status?.type?.completed).length;
+      if (upcoming > 0) {
+        console.log(`  ✅ ${league.name}: ${upcoming} próximos`);
+      }
     }
   }
+  
+  const elapsed = Date.now() - startTime;
+  console.log(`⚡ Tiempo de carga: ${(elapsed / 1000).toFixed(2)} segundos`);
   
   // Ordenar SOLO por fecha (más próximos primero)
   allMatches.sort((a, b) => {
