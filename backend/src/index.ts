@@ -81,7 +81,8 @@ app.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       database: 'connected',
-      version: '1.0.0'
+      version: '4.7.0',
+      motor: 'Motor v4.7 PRO - Soñadoras 12/20'
     });
   } catch (error) {
     console.error('Health check failed:', error);
