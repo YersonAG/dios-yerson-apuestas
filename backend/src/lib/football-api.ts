@@ -1,6 +1,6 @@
 // API de Fútbol - El Dios Yerson
-// 🚫 SIN APIs de pago - Solo ESPN ( GRATIS y sin límites)
-// Incluye: TODAS las ligas LATAM + Europa + Internacionales
+// 🚀 SIN APIs de pago
+// Fuentes: API-Football (partidos futuros) + ESPN (partidos del día)
 
 // ===== INTERFACES =====
 export interface MatchForApp {
@@ -39,55 +39,59 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 // Cache de estadísticas
 const teamStatsCache = new Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>();
 
-// ===== ESPN API =====
+// ===== APIs =====
+// API-Football (api-sports.io) - Partidos futuros por fecha
+const AS_API_KEY = process.env.FOOTBALL_API_KEY || '1b61538134ffc3ee9b7f637ceebe7524';
+const AS_API_URL = 'https://v3.football.api-sports.io';
+
+// ESPN - Partidos del día actual
 const ESPN_API = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
 
-console.log('⚽ Fuente de datos: ESPN (GRATIS, sin límites, todas las ligas)');
+console.log('⚽ Fuentes: API-Football (futuros) + ESPN (hoy)');
 
-// ===== TODAS LAS LIGAS ESPN =====
-const ESPN_LEAGUES = [
-  // ===== LATAM (Prioridad 1) =====
-  { code: 'col.1', name: 'Liga BetPlay', country: 'Colombia', priority: 1 },
-  { code: 'arg.1', name: 'Liga Profesional', country: 'Argentina', priority: 1 },
-  { code: 'bra.1', name: 'Brasileirão', country: 'Brasil', priority: 1 },
-  { code: 'mex.1', name: 'Liga MX', country: 'México', priority: 1 },
-  { code: 'chi.1', name: 'Primera División', country: 'Chile', priority: 1 },
-  { code: 'ecu.1', name: 'Liga Pro', country: 'Ecuador', priority: 1 },
-  { code: 'per.1', name: 'Liga 1', country: 'Perú', priority: 1 },
-  { code: 'uru.1', name: 'Primera División', country: 'Uruguay', priority: 1 },
-  { code: 'par.1', name: 'Primera División', country: 'Paraguay', priority: 1 },
-  { code: 'ven.1', name: 'Primera División', country: 'Venezuela', priority: 1 },
-  { code: 'bol.1', name: 'Primera División', country: 'Bolivia', priority: 1 },
+// ===== LIGAS PRINCIPALES (API-Football IDs) =====
+const PRIORITY_LEAGUES = [
+  // LATAM
+  { id: 239, name: 'Liga BetPlay', country: 'Colombia', priority: 1 },
+  { id: 128, name: 'Liga Profesional', country: 'Argentina', priority: 1 },
+  { id: 71, name: 'Brasileirão', country: 'Brasil', priority: 1 },
+  { id: 262, name: 'Liga MX', country: 'México', priority: 1 },
+  { id: 133, name: 'Primera División', country: 'Chile', priority: 1 },
+  { id: 242, name: 'Liga Pro', country: 'Ecuador', priority: 1 },
+  { id: 247, name: 'Liga 1', country: 'Perú', priority: 1 },
   
-  // ===== Copas Sudamericanas =====
-  { code: 'conmebol.libertadores', name: 'Copa Libertadores', country: 'Sudamérica', priority: 1 },
-  { code: 'conmebol.sudamericana', name: 'Copa Sudamericana', country: 'Sudamérica', priority: 1 },
-  { code: 'conmebol.recopa', name: 'Recopa Sudamericana', country: 'Sudamérica', priority: 1 },
+  // Brasil Estaduales
+  { id: 475, name: 'Paulista A1', country: 'Brasil', priority: 1 },
+  { id: 629, name: 'Mineiro', country: 'Brasil', priority: 1 },
+  { id: 600, name: 'Carioca', country: 'Brasil', priority: 1 },
+  { id: 611, name: 'Gaúcho', country: 'Brasil', priority: 1 },
   
-  // ===== Europa - Top 5 =====
-  { code: 'eng.1', name: 'Premier League', country: 'Inglaterra', priority: 2 },
-  { code: 'esp.1', name: 'La Liga', country: 'España', priority: 2 },
-  { code: 'ita.1', name: 'Serie A', country: 'Italia', priority: 2 },
-  { code: 'ger.1', name: 'Bundesliga', country: 'Alemania', priority: 2 },
-  { code: 'fra.1', name: 'Ligue 1', country: 'Francia', priority: 2 },
+  // Copas LATAM
+  { id: 13, name: 'Copa Libertadores', country: 'Sudamérica', priority: 1 },
+  { id: 11, name: 'Copa Sudamericana', country: 'Sudamérica', priority: 1 },
   
-  // ===== Europa - Otras ligas =====
-  { code: 'ned.1', name: 'Eredivisie', country: 'Holanda', priority: 3 },
-  { code: 'por.1', name: 'Primeira Liga', country: 'Portugal', priority: 3 },
-  { code: 'bel.1', name: 'First Division A', country: 'Bélgica', priority: 3 },
-  { code: 'tur.1', name: 'Super Lig', country: 'Turquía', priority: 3 },
-  { code: 'sco.1', name: 'Scottish Premiership', country: 'Escocia', priority: 3 },
-  { code: 'gre.1', name: 'Super League', country: 'Grecia', priority: 3 },
+  // Europa Top 5
+  { id: 39, name: 'Premier League', country: 'Inglaterra', priority: 2 },
+  { id: 140, name: 'La Liga', country: 'España', priority: 2 },
+  { id: 135, name: 'Serie A', country: 'Italia', priority: 2 },
+  { id: 78, name: 'Bundesliga', country: 'Alemania', priority: 2 },
+  { id: 61, name: 'Ligue 1', country: 'Francia', priority: 2 },
   
-  // ===== Copas Europeas =====
-  { code: 'uefa.champions', name: 'Champions League', country: 'Europa', priority: 2 },
-  { code: 'uefa.europa', name: 'Europa League', country: 'Europa', priority: 2 },
-  { code: 'uefa.europa.conf', name: 'Conference League', country: 'Europa', priority: 3 },
+  // Otras Europa
+  { id: 88, name: 'Eredivisie', country: 'Holanda', priority: 3 },
+  { id: 94, name: 'Primeira Liga', country: 'Portugal', priority: 3 },
+  { id: 144, name: 'Jupiler Pro League', country: 'Bélgica', priority: 3 },
+  { id: 203, name: 'Süper Lig', country: 'Turquía', priority: 3 },
   
-  // ===== Otras regiones =====
-  { code: 'usa.1', name: 'MLS', country: 'Estados Unidos', priority: 2 },
-  { code: 'mex.1', name: 'Liga MX', country: 'México', priority: 1 },
-  { code: 'sau.1', name: 'Saudi Pro League', country: 'Arabia Saudita', priority: 3 },
+  // Copas Europa
+  { id: 2, name: 'Champions League', country: 'Europa', priority: 2 },
+  { id: 3, name: 'Europa League', country: 'Europa', priority: 2 },
+  { id: 848, name: 'Conference League', country: 'Europa', priority: 3 },
+  { id: 45, name: 'FA Cup', country: 'Inglaterra', priority: 2 },
+  
+  // Otros
+  { id: 253, name: 'MLS', country: 'Estados Unidos', priority: 2 },
+  { id: 307, name: 'Saudi Pro League', country: 'Arabia Saudita', priority: 3 },
 ];
 
 // ===== FUNCIÓN PRINCIPAL =====
@@ -99,91 +103,151 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
     return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime() + 30 * 60 * 1000);
   }
   
-  console.log('🌐 Obteniendo TODOS los partidos de ESPN (paralelo)...');
+  console.log('🌐 Obteniendo partidos de múltiples fuentes...');
   const startTime = Date.now();
   
   const allMatches: MatchForApp[] = [];
   const seenIds = new Set<string>();
   
-  // 🚀 OPTIMIZACIÓN: Hacer todas las peticiones en paralelo con Promise.all
-  const requests = ESPN_LEAGUES.map(async (league) => {
-    try {
-      const response = await fetch(
-        `${ESPN_API}/${league.code}/scoreboard`,
-        {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-          signal: AbortSignal.timeout(10000)
-        }
+  try {
+    // ===== 1. API-Football: Obtener partidos de los próximos días =====
+    console.log('\n📊 API-Football: Buscando partidos futuros...');
+    
+    // Crear peticiones para cada día
+    const dateRequests: Promise<{ date: string; data: any }>[] = [];
+    
+    for (let i = 0; i < days; i++) {
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + i);
+      const dateStr = targetDate.toISOString().split('T')[0];
+      
+      dateRequests.push(
+        fetch(`${AS_API_URL}/fixtures?date=${dateStr}`, {
+          headers: { 'x-apisports-key': AS_API_KEY },
+          signal: AbortSignal.timeout(15000)
+        })
+        .then(r => r.json())
+        .then(data => ({ date: dateStr, data }))
+        .catch(() => ({ date: dateStr, data: { response: [] } }))
       );
-      
-      if (!response.ok) return { league, events: [] };
-      
-      const data = await response.json();
-      return { league, events: data.events || [], leagueData: data };
-      
-    } catch (error) {
-      return { league, events: [] };
-    }
-  });
-  
-  // Ejecutar todas las peticiones en paralelo
-  const results = await Promise.all(requests);
-  
-  // Procesar resultados
-  for (const { league, events, leagueData } of results) {
-    for (const event of events) {
-      // Saltar partidos ya terminados
-      if (event.status?.type?.completed === true) continue;
-      
-      const matchId = `espn_${event.id}`;
-      if (seenIds.has(matchId)) continue;
-      seenIds.add(matchId);
-      
-      const competition = event.competitions?.[0];
-      const homeTeam = competition?.competitors?.find((c: any) => c.homeAway === 'home');
-      const awayTeam = competition?.competitors?.find((c: any) => c.homeAway === 'away');
-      
-      // Determinar estado
-      let status = 'Scheduled';
-      if (event.status?.type?.state === 'in') {
-        status = 'LIVE';
-      } else if (event.status?.type?.completed) {
-        status = 'FT';
-      } else if (event.status?.type?.shortDetail) {
-        status = event.status.type.shortDetail;
-      }
-      
-      allMatches.push({
-        id: matchId,
-        homeTeam: homeTeam?.team?.displayName || homeTeam?.team?.name || 'TBD',
-        awayTeam: awayTeam?.team?.displayName || awayTeam?.team?.name || 'TBD',
-        league: league.name,
-        country: league.country,
-        matchDate: event.date,
-        status,
-        homeLogo: homeTeam?.team?.logo || homeTeam?.team?.logoHref,
-        awayLogo: awayTeam?.team?.logo || awayTeam?.team?.logoHref,
-        leagueLogo: leagueData?.leagues?.[0]?.logos?.[0]?.href,
-        homeTeamId: parseInt(homeTeam?.team?.id || '0'),
-        awayTeamId: parseInt(awayTeam?.team?.id || '0'),
-      });
     }
     
-    if (events.length > 0) {
-      const upcoming = events.filter((e: any) => !e.status?.type?.completed).length;
-      if (upcoming > 0) {
-        console.log(`  ✅ ${league.name}: ${upcoming} próximos`);
+    // Ejecutar todas las peticiones en paralelo
+    const responses = await Promise.all(dateRequests);
+    
+    // Procesar respuestas
+    const leagueSet = new Set(PRIORITY_LEAGUES.map(l => l.id));
+    
+    for (const { date, data } of responses) {
+      const fixtures = data.response || [];
+      
+      for (const fixture of fixtures) {
+        // Solo ligas prioritarias
+        if (!leagueSet.has(fixture.league?.id)) continue;
+        
+        const matchId = `af_${fixture.fixture?.id}`;
+        if (seenIds.has(matchId)) continue;
+        seenIds.add(matchId);
+        
+        // Solo partidos no terminados
+        const status = fixture.fixture?.status?.short;
+        if (['FT', 'AET', 'PEN', 'CANC', 'PST', 'SUSP'].includes(status)) continue;
+        
+        const leagueInfo = PRIORITY_LEAGUES.find(l => l.id === fixture.league?.id);
+        
+        allMatches.push({
+          id: matchId,
+          homeTeam: fixture.teams?.home?.name || 'TBD',
+          awayTeam: fixture.teams?.away?.name || 'TBD',
+          league: leagueInfo?.name || fixture.league?.name || 'Liga',
+          country: leagueInfo?.country || fixture.league?.country || 'Internacional',
+          matchDate: fixture.fixture?.date,
+          status: status === 'NS' ? 'Scheduled' : status === 'LIVE' || status === '1H' || status === '2H' ? 'LIVE' : status,
+          homeLogo: fixture.teams?.home?.logo,
+          awayLogo: fixture.teams?.away?.logo,
+          leagueLogo: fixture.league?.logo,
+          homeTeamId: fixture.teams?.home?.id,
+          awayTeamId: fixture.teams?.away?.id,
+        });
+      }
+      
+      if (fixtures.length > 0) {
+        const count = fixtures.filter((f: any) => leagueSet.has(f.league?.id) && !['FT', 'AET', 'PEN', 'CANC', 'PST', 'SUSP'].includes(f.fixture?.status?.short)).length;
+        if (count > 0) {
+          console.log(`  ✅ ${date}: ${count} partidos`);
+        }
       }
     }
+    
+  } catch (error) {
+    console.error('❌ Error API-Football:', error);
   }
   
-  const elapsed = Date.now() - startTime;
-  console.log(`⚡ Tiempo de carga: ${(elapsed / 1000).toFixed(2)} segundos`);
+  // ===== 2. ESPN: Partidos de hoy (backup) =====
+  try {
+    console.log('\n📺 ESPN: Buscando partidos de hoy...');
+    
+    const espnLeagues = ['col.1', 'mex.1', 'arg.1', 'bra.1', 'eng.1', 'esp.1', 'ita.1', 'ger.1', 'fra.1'];
+    
+    const espnRequests = espnLeagues.map(async (code) => {
+      try {
+        const r = await fetch(`${ESPN_API}/${code}/scoreboard`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: AbortSignal.timeout(10000)
+        });
+        const data = await r.json();
+        return { code, events: data.events || [] };
+      } catch {
+        return { code, events: [] };
+      }
+    });
+    
+    const espnResults = await Promise.all(espnRequests);
+    
+    for (const { code, events } of espnResults) {
+      for (const event of events) {
+        if (event.status?.type?.completed) continue;
+        
+        const matchId = `espn_${event.id}`;
+        if (seenIds.has(matchId)) continue;
+        seenIds.add(matchId);
+        
+        const home = event.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === 'home');
+        const away = event.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === 'away');
+        
+        // Determinar liga y país
+        let league = 'Liga';
+        let country = 'Internacional';
+        if (code.includes('col')) { league = 'Liga BetPlay'; country = 'Colombia'; }
+        else if (code.includes('mex')) { league = 'Liga MX'; country = 'México'; }
+        else if (code.includes('arg')) { league = 'Liga Profesional'; country = 'Argentina'; }
+        else if (code.includes('bra')) { league = 'Brasileirão'; country = 'Brasil'; }
+        else if (code.includes('eng')) { league = 'Premier League'; country = 'Inglaterra'; }
+        else if (code.includes('esp')) { league = 'La Liga'; country = 'España'; }
+        else if (code.includes('ita')) { league = 'Serie A'; country = 'Italia'; }
+        else if (code.includes('ger')) { league = 'Bundesliga'; country = 'Alemania'; }
+        else if (code.includes('fra')) { league = 'Ligue 1'; country = 'Francia'; }
+        
+        allMatches.push({
+          id: matchId,
+          homeTeam: home?.team?.displayName || 'TBD',
+          awayTeam: away?.team?.displayName || 'TBD',
+          league,
+          country,
+          matchDate: event.date,
+          status: event.status?.type?.state === 'in' ? 'LIVE' : 'Scheduled',
+          homeLogo: home?.team?.logo,
+          awayLogo: away?.team?.logo,
+        });
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ Error ESPN:', error);
+  }
   
-  // Ordenar SOLO por fecha (más próximos primero)
-  allMatches.sort((a, b) => {
-    return new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime();
-  });
+  // Ordenar por fecha
+  allMatches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
   
   // Filtrar próximos días
   const now = new Date();
@@ -199,8 +263,8 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
   cachedMatches = filteredMatches;
   cacheTime = Date.now();
   
-  // Log resumen
-  console.log(`\n✅ TOTAL: ${filteredMatches.length} partidos (ordenados por fecha)`);
+  const elapsed = Date.now() - startTime;
+  console.log(`\n✅ TOTAL: ${filteredMatches.length} partidos en ${(elapsed/1000).toFixed(1)}s`);
   
   return filteredMatches;
 }
@@ -211,57 +275,49 @@ export function getTeamStats(teamId: number | undefined): { goalsFor: number; go
   return teamStatsCache.get(teamId) || null;
 }
 
-// ===== RESULTADOS DE PARTIDOS =====
+// ===== RESULTADOS =====
 export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]> {
   const results: MatchResult[] = [];
+  const today = new Date().toISOString().split('T')[0];
   
-  for (const league of ESPN_LEAGUES) {
-    try {
-      const response = await fetch(
-        `${ESPN_API}/${league.code}/scoreboard`,
-        {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-          signal: AbortSignal.timeout(10000)
-        }
-      );
+  try {
+    const response = await fetch(
+      `${AS_API_URL}/fixtures?date=${today}`,
+      { headers: { 'x-apisports-key': AS_API_KEY } }
+    );
+    
+    const data = await response.json();
+    const fixtures = data.response || [];
+    
+    for (const fixture of fixtures) {
+      const matchId = `af_${fixture.fixture?.id}`;
+      if (!matchIds.includes(matchId)) continue;
       
-      if (!response.ok) continue;
+      const status = fixture.fixture?.status?.short;
+      if (!['FT', 'AET', 'PEN'].includes(status)) continue;
       
-      const data = await response.json();
-      const events = data.events || [];
+      const homeScore = fixture.goals?.home ?? 0;
+      const awayScore = fixture.goals?.away ?? 0;
       
-      for (const event of events) {
-        const matchId = `espn_${event.id}`;
-        if (!matchIds.includes(matchId)) continue;
-        if (!event.status?.type?.completed) continue;
-        
-        const competition = event.competitions?.[0];
-        const homeTeam = competition?.competitors?.find((c: any) => c.homeAway === 'home');
-        const awayTeam = competition?.competitors?.find((c: any) => c.homeAway === 'away');
-        
-        const homeScore = parseInt(homeTeam?.score || '0');
-        const awayScore = parseInt(awayTeam?.score || '0');
-        
-        let winner: 'home' | 'away' | 'draw' = 'draw';
-        if (homeScore > awayScore) winner = 'home';
-        else if (awayScore > homeScore) winner = 'away';
-        
-        results.push({
-          id: matchId,
-          homeTeam: homeTeam?.team?.displayName || 'TBD',
-          awayTeam: awayTeam?.team?.displayName || 'TBD',
-          league: league.name,
-          matchDate: event.date,
-          status: 'FT',
-          homeScore,
-          awayScore,
-          winner,
-          totalGoals: homeScore + awayScore,
-        });
-      }
-    } catch (error) {
-      // Silencioso
+      let winner: 'home' | 'away' | 'draw' = 'draw';
+      if (homeScore > awayScore) winner = 'home';
+      else if (awayScore > homeScore) winner = 'away';
+      
+      results.push({
+        id: matchId,
+        homeTeam: fixture.teams?.home?.name || 'TBD',
+        awayTeam: fixture.teams?.away?.name || 'TBD',
+        league: fixture.league?.name || 'Liga',
+        matchDate: fixture.fixture?.date,
+        status: 'FT',
+        homeScore,
+        awayScore,
+        winner,
+        totalGoals: homeScore + awayScore,
+      });
     }
+  } catch (error) {
+    console.error('Error resultados:', error);
   }
   
   return results;
