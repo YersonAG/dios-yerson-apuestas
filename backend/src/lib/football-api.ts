@@ -1,5 +1,5 @@
 // API de Fútbol - El Dios Yerson
-// Usa football-data.org API
+// Usa football-data.org API - TODAS las ligas disponibles
 
 // ===== INTERFACES =====
 export interface MatchForApp {
@@ -44,17 +44,28 @@ const API_URL = 'https://api.football-data.org/v4';
 
 console.log('🔑 FOOTBALL_DATA_API_KEY:', API_KEY ? '✅ Configurada' : '❌ No configurada');
 
-// ===== COMPETICIONES A BUSCAR =====
+// ===== TODAS LAS COMPETICIONES DISPONIBLES =====
 const COMPETITIONS = [
+  // Europa - Top Ligas
   { code: 'PL', name: 'Premier League', country: 'Inglaterra' },
+  { code: 'ELC', name: 'Championship', country: 'Inglaterra' },
   { code: 'PD', name: 'La Liga', country: 'España' },
   { code: 'SA', name: 'Serie A', country: 'Italia' },
   { code: 'BL1', name: 'Bundesliga', country: 'Alemania' },
   { code: 'FL1', name: 'Ligue 1', country: 'Francia' },
   { code: 'DED', name: 'Eredivisie', country: 'Holanda' },
   { code: 'PPL', name: 'Primeira Liga', country: 'Portugal' },
+  
+  // Competiciones Europeas
   { code: 'CL', name: 'Champions League', country: 'Europa' },
+  { code: 'EC', name: 'European Championship', country: 'Europa' },
+  
+  // Sudamérica
+  { code: 'BSA', name: 'Brasileirão', country: 'Brasil' },
   { code: 'CLI', name: 'Copa Libertadores', country: 'Sudamérica' },
+  
+  // Mundial
+  { code: 'WC', name: 'World Cup', country: 'Mundial' },
 ];
 
 // ===== OBTENER PARTIDOS DE UNA LIGA =====
@@ -66,12 +77,14 @@ async function fetchMatchesFromCompetition(code: string, name: string, country: 
       `${API_URL}/competitions/${code}/matches?status=SCHEDULED`,
       { 
         headers: { 'X-Auth-Token': API_KEY },
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(10000)
       }
     );
     
     if (!response.ok) {
-      console.log(`⚠️ ${code}: ${response.status}`);
+      if (response.status !== 403) { // 403 = competición fuera de temporada
+        console.log(`⚠️ ${code}: ${response.status}`);
+      }
       return matches;
     }
     
@@ -104,16 +117,18 @@ async function fetchMatchesFromCompetition(code: string, name: string, country: 
       });
     }
     
-    console.log(`✅ ${name}: ${matches.length} partidos`);
+    if (matches.length > 0) {
+      console.log(`✅ ${name}: ${matches.length} partidos`);
+    }
     
   } catch (error) {
-    console.log(`⚠️ Error ${code}:`, error);
+    // Silencioso para no llenar logs
   }
   
   return matches;
 }
 
-// ===== OBTENER STANDINGS =====
+// ===== OBTENER STANDINGS DE UNA LIGA =====
 async function fetchStandings(code: string): Promise<void> {
   try {
     const response = await fetch(
@@ -139,7 +154,6 @@ async function fetchStandings(code: string): Promise<void> {
           position: row.position,
         });
       }
-      console.log(`📊 Standings ${code}: ${table.length} equipos`);
     }
   } catch (error) {
     // Silencioso
@@ -155,21 +169,21 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
     return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime() + 30 * 60 * 1000);
   }
   
-  console.log('🌐 Obteniendo partidos de football-data.org...');
-  console.log('📡 Buscando en', COMPETITIONS.length, 'ligas...');
+  console.log('🌐 Obteniendo partidos de TODAS las ligas...');
+  console.log('📡 Buscando en', COMPETITIONS.length, 'competiciones...');
   
   const allMatches: MatchForApp[] = [];
   
-  // Obtener partidos de cada liga
+  // Obtener partidos y standings de cada competición
   for (const comp of COMPETITIONS) {
     const matches = await fetchMatchesFromCompetition(comp.code, comp.name, comp.country);
     allMatches.push(...matches);
     
-    // Obtener standings también
+    // También obtener standings
     await fetchStandings(comp.code);
     
-    // Pequeña pausa para no exceder rate limit
-    await new Promise(r => setTimeout(r, 200));
+    // Pequeña pausa para no exceder rate limit (10 req/min)
+    await new Promise(r => setTimeout(r, 300));
   }
   
   // Ordenar por fecha
@@ -189,7 +203,7 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
   cachedMatches = filteredMatches;
   cacheTime = Date.now();
   
-  console.log(`✅ TOTAL: ${filteredMatches.length} partidos REALES`);
+  console.log(`✅ TOTAL: ${filteredMatches.length} partidos REALES de ${COMPETITIONS.length} ligas`);
   
   return filteredMatches;
 }
@@ -205,12 +219,12 @@ export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]
   const results: MatchResult[] = [];
   
   try {
-    for (const comp of COMPETITIONS.slice(0, 5)) {
+    for (const comp of COMPETITIONS) {
       const response = await fetch(
         `${API_URL}/competitions/${comp.code}/matches?status=FINISHED`,
         { 
           headers: { 'X-Auth-Token': API_KEY },
-          signal: AbortSignal.timeout(8000)
+          signal: AbortSignal.timeout(10000)
         }
       );
       
@@ -244,7 +258,7 @@ export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]
         }
       }
       
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 300));
     }
   } catch (error) {
     console.error('Error resultados:', error);
