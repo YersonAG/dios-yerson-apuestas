@@ -1,80 +1,36 @@
 // Rutas de Chat - El Dios Yerson
-// Motor v4.7 PRO - Con Soñadoras 12 y 20
+// Motor v4.7 PRO - Con Análisis REAL de Equipos
 
 import { Router, Request, Response } from 'express';
 import { db } from '../lib/db';
 import { getCurrentUser } from './auth';
 import { getUpcomingMatches, MatchForApp } from '../lib/football-api';
+import { analyzeMatch, generateCombinadaFromMatches, MatchPick } from '../lib/ai-betting-engine';
 
 const router = Router();
-
-// ===== GENERADOR DE PICKS DE BAJO RIESGO =====
-function generateLowRiskPick(match: MatchForApp): { pick: string; odds: number; probability: number } {
-  const picks = [
-    { pick: 'Doble oportunidad 1X', odds: 1.35, probability: 0.74 },
-    { pick: 'Doble oportunidad X2', odds: 1.40, probability: 0.71 },
-    { pick: 'Más de 1.5 goles', odds: 1.25, probability: 0.80 },
-    { pick: 'Menos de 4.5 goles', odds: 1.15, probability: 0.87 },
-    { pick: 'Doble oportunidad 1X', odds: 1.30, probability: 0.77 },
-    { pick: 'Más de 0.5 goles', odds: 1.10, probability: 0.91 },
-    { pick: 'Menos de 3.5 goles', odds: 1.20, probability: 0.83 },
-    { pick: 'Doble oportunidad X2', odds: 1.38, probability: 0.72 },
-  ];
-  
-  const hash = match.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  return picks[hash % picks.length];
-}
 
 // ===== FILTRAR PARTIDOS QUE AÚN NO HAN COMENZADO =====
 function filterFutureMatches(matches: MatchForApp[]): MatchForApp[] {
   const now = new Date();
-  // Solo partidos que comienzan al menos 30 minutos en el futuro
   return matches.filter(m => {
     const matchDate = new Date(m.matchDate);
     return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
   });
 }
 
-// ===== GENERAR COMBINADA DESDE PARTIDOS =====
-function generateCombinadaFromMatches(matches: MatchForApp[], title: string) {
-  const picks = matches.map((match) => {
-    const pick = generateLowRiskPick(match);
-    return {
-      matchId: match.id,
-      homeTeam: match.homeTeam,
-      awayTeam: match.awayTeam,
-      league: match.league,
-      matchDate: match.matchDate,
-      pick: pick.pick,
-      odds: pick.odds,
-      probability: pick.probability,
-      status: 'pending',
-    };
-  });
-  
-  const totalOdds = Math.round(picks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
-  const totalProbability = Math.round(picks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
-  
-  return {
-    id: `comb_${Date.now()}`,
-    picks,
-    totalOdds,
-    totalProbability,
-    risk: 'low' as const,
-    status: 'pending' as const,
-    title,
-  };
-}
-
 // ===== FORMATEAR RESPUESTA =====
-function formatCombinadaResponse(combinada: any, title: string): string {
+function formatCombinadaResponse(combinada: { 
+  picks: MatchPick[]; 
+  totalOdds: number; 
+  totalProbability: number 
+}, title: string): string {
   let response = `🎰 **${title}**\n\n`;
   response += `📊 Probabilidad: **${(combinada.totalProbability * 100).toFixed(0)}%**\n`;
   response += `💰 Cuota total: **${combinada.totalOdds.toFixed(2)}**\n`;
   response += `📍 ${combinada.picks.length} picks\n\n`;
   response += `---\n\n`;
   
-  combinada.picks.forEach((pick: any, i: number) => {
+  combinada.picks.forEach((pick, i) => {
     const date = new Date(pick.matchDate);
     const dateStr = date.toLocaleDateString('es-CO', { 
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
@@ -82,7 +38,8 @@ function formatCombinadaResponse(combinada: any, title: string): string {
     });
     response += `**${i + 1}. ${pick.homeTeam} vs ${pick.awayTeam}**\n`;
     response += `📍 ${pick.league} | 📅 ${dateStr}\n`;
-    response += `✅ **${pick.pick}** @ ${pick.odds.toFixed(2)}\n\n`;
+    response += `✅ **${pick.pick}** @ ${pick.odds.toFixed(2)}\n`;
+    response += `📝 _${pick.analysis}_\n\n`;
   });
   
   response += `---\n\n🟢 **BAJO RIESGO**\n\n*Agradece al Dios Yerson.* 🙏`;
@@ -93,9 +50,9 @@ function formatCombinadaResponse(combinada: any, title: string): string {
 router.get('/', async (req: Request, res: Response) => {
   res.json({ 
     status: 'ok',
-    message: 'Endpoint de chat activo. Usa POST para enviar mensajes.',
+    message: 'Motor v4.7 PRO - Análisis REAL de equipos',
     hint: 'POST {"message": "ver partidos"}',
-    version: 'Motor v4.7 PRO'
+    version: '4.7.0'
   });
 });
 
@@ -105,7 +62,6 @@ router.post('/', async (req: Request, res: Response) => {
     const { message, selectedMatches: selectedMatchesData } = req.body;
     
     console.log('📩 Chat recibido:', message?.substring(0, 50));
-    console.log('📋 Partidos seleccionados:', selectedMatchesData?.length || 0);
     
     if (!message) {
       return res.status(400).json({ error: 'Mensaje requerido' });
@@ -124,7 +80,6 @@ router.post('/', async (req: Request, res: Response) => {
       console.log('📋 Obteniendo partidos...');
       
       let matches = await getUpcomingMatches(14);
-      // FILTRAR: Solo partidos que aún no han comenzado
       matches = filterFutureMatches(matches);
       
       console.log(`✅ Enviando ${matches.length} partidos FUTUROS`);
@@ -159,23 +114,13 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // ========== GENERAR COMBINADA CON PARTIDOS SELECCIONADOS ==========
-    // IMPORTANTE: Solo usar los partidos que el usuario seleccionó EXACTAMENTE
     if (selectedMatchesData && Array.isArray(selectedMatchesData) && selectedMatchesData.length > 0) {
       console.log(`🎯 Generando combinada con ${selectedMatchesData.length} partidos SELECCIONADOS`);
       
-      // Validar máximo 20 partidos
       const matchesToUse = selectedMatchesData.slice(0, 20);
       
-      if (matchesToUse.length < selectedMatchesData.length) {
-        console.log(`⚠️ Se limitó a 20 partidos (eran ${selectedMatchesData.length})`);
-      }
-      
-      // Log de los partidos que se van a usar
-      matchesToUse.forEach((m: MatchForApp, i: number) => {
-        console.log(`  ${i+1}. ${m.homeTeam} vs ${m.awayTeam}`);
-      });
-      
-      const combinada = generateCombinadaFromMatches(matchesToUse, 'COMBINADA PERSONALIZADA');
+      // Usar el motor REAL de análisis
+      const combinada = generateCombinadaFromMatches(matchesToUse);
       const response = formatCombinadaResponse(combinada, 'COMBINADA PERSONALIZADA');
       
       return res.json({
@@ -202,11 +147,8 @@ router.post('/', async (req: Request, res: Response) => {
         });
       }
       
-      // Tomar exactamente 20 partidos
       const selectedMatches = matches.slice(0, 20);
-      console.log(`✅ Seleccionando EXACTAMENTE 20 partidos`);
-      
-      const combinada = generateCombinadaFromMatches(selectedMatches, 'SOÑADORA 20');
+      const combinada = generateCombinadaFromMatches(selectedMatches);
       const response = formatCombinadaResponse(combinada, '🌙 SOÑADORA 20');
       
       return res.json({
@@ -233,11 +175,8 @@ router.post('/', async (req: Request, res: Response) => {
         });
       }
       
-      // Tomar exactamente 12 partidos
       const selectedMatches = matches.slice(0, 12);
-      console.log(`✅ Seleccionando EXACTAMENTE 12 partidos`);
-      
-      const combinada = generateCombinadaFromMatches(selectedMatches, 'SOÑADORA 12');
+      const combinada = generateCombinadaFromMatches(selectedMatches);
       const response = formatCombinadaResponse(combinada, '🌙 SOÑADORA 12');
       
       return res.json({
@@ -249,11 +188,56 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    // ========== ANÁLISIS DE PARTIDO ESPECÍFICO ==========
+    if (lowerMessage.includes('analiza') || lowerMessage.includes('analiz') || lowerMessage.includes('análisis')) {
+      // Buscar si mencionan equipos
+      const vsMatch = message.match(/(.+?)\s+vs\s+(.+)/i);
+      
+      if (vsMatch) {
+        const homeTeam = vsMatch[1].trim();
+        const awayTeam = vsMatch[2].trim();
+        
+        console.log(`🔍 Analizando: ${homeTeam} vs ${awayTeam}`);
+        
+        const analysis = analyzeMatch(homeTeam, awayTeam);
+        
+        let response = `🔍 **ANÁLISIS: ${analysis.homeTeam} vs ${analysis.awayTeam}**\n`;
+        response += `📍 Liga: ${analysis.league}\n\n`;
+        
+        response += `📊 **ESTADÍSTICAS:**\n`;
+        response += `• ${analysis.homeTeam}: Fuerza ${analysis.stats.homeStrength} | Forma: ${analysis.stats.homeForm}\n`;
+        response += `• ${analysis.awayTeam}: Fuerza ${analysis.stats.awayStrength} | Forma: ${analysis.stats.awayForm}\n`;
+        response += `• Diferencia: ${analysis.stats.diff > 0 ? '+' : ''}${analysis.stats.diff}\n`;
+        response += `• Goles promedio: ${analysis.stats.totalGoalsAvg.toFixed(1)}\n\n`;
+        
+        response += `🎯 **PICKS RECOMENDADOS:**\n\n`;
+        analysis.picks.forEach((pick, i) => {
+          response += `**${i + 1}. ${pick.label}**\n`;
+          response += `   💰 @ ${pick.odds.toFixed(2)} | ${(pick.probability * 100).toFixed(0)}%\n`;
+          response += `   📝 ${pick.reasoning}\n\n`;
+        });
+        
+        response += `---\n\n*Agradece al Dios Yerson.* 🙏`;
+        
+        return res.json({
+          success: true,
+          type: 'analysis',
+          message: response,
+        });
+      }
+      
+      return res.json({
+        success: true,
+        type: 'help',
+        message: `🔍 **Para analizar un partido escribe:**\n\n"analiza [equipo1] vs [equipo2]"\n\nEjemplo: "analiza Nacional vs Millonarios"`,
+      });
+    }
+
     // ========== GENERAR AUTOMÁTICO (5 picks) ==========
     if (lowerMessage.includes('automátic') || lowerMessage.includes('automatico') || lowerMessage.includes('auto')) {
       let matches = await getUpcomingMatches(14);
       matches = filterFutureMatches(matches);
-      const selectedMatches = matches.slice(0, 5); // Tomar 5 partidos próximos
+      const selectedMatches = matches.slice(0, 5);
       
       if (selectedMatches.length === 0) {
         return res.json({
@@ -263,7 +247,7 @@ router.post('/', async (req: Request, res: Response) => {
         });
       }
       
-      const combinada = generateCombinadaFromMatches(selectedMatches, 'COMBINADA AUTOMÁTICA');
+      const combinada = generateCombinadaFromMatches(selectedMatches);
       const response = formatCombinadaResponse(combinada, '🤖 COMBINADA AUTOMÁTICA');
       
       return res.json({
@@ -280,7 +264,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         type: 'greeting',
-        message: `${user?.username || 'Mi socio'}, ¡hola mi ludopana favorito! 🎰\n\n¿En qué partidos le vas a encomendar tu dinero?\n\nEscribe **"ver partidos"** para ver los partidos.\n\nO usa:\n• **"automático"** - 5 picks rápidos\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n\n*Agradece al Dios Yerson.* 🙏`,
+        message: `${user?.username || 'Mi socio'}, ¡hola mi ludopana favorito! 🎰\n\n¿En qué partidos le vas a encomendar tu dinero?\n\nEscribe **"ver partidos"** para ver los partidos.\n\nO usa:\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n• **"analiza X vs Y"** - Análisis de partido\n\n*Agradece al Dios Yerson.* 🙏`,
       });
     }
 
@@ -289,7 +273,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         type: 'help',
-        message: `📖 **CÓMO FUNCIONA**\n\n**1.** Escribe **"ver partidos"** para ver próximos partidos\n\n**2.** Selecciona hasta **20 partidos**\n\n**3.** Presiona **"Generar picks"**\n\n---\n\n**🤖 AUTOMÁTICOS:**\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n\n🟢 Solo apuestas de **BAJO RIESGO**\n\n⏰ Horarios en hora Colombia (UTC-5)`,
+        message: `📖 **CÓMO FUNCIONA - Motor v4.7 PRO**\n\n**1.** Escribe **"ver partidos"** para ver próximos partidos\n\n**2.** Selecciona hasta **20 partidos**\n\n**3.** Presiona **"Generar picks"**\n\n---\n\n**🤖 AUTOMÁTICOS:**\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n\n**🔍 ANÁLISIS:**\n• **"analiza Nacional vs Millonarios"**\n\n🟢 Solo apuestas de **BAJO RIESGO**\n\n⏰ Horarios en hora Colombia (UTC-5)`,
       });
     }
 
@@ -297,7 +281,7 @@ router.post('/', async (req: Request, res: Response) => {
     return res.json({
       success: true,
       type: 'unknown',
-      message: `No entendí, mi socio. 🤔\n\n¿Quieres ver los partidos?\n• Escribe **"ver partidos"**\n• O **"automático"** para 5 picks\n• O **"soñadora 12"** o **"soñadora 20"**\n\n*Agradece al Dios Yerson.* 🙏`,
+      message: `No entendí, mi socio. 🤔\n\n¿Quieres ver los partidos?\n• Escribe **"ver partidos"**\n• O **"automático"** para 5 picks\n• O **"analiza X vs Y"** para análisis\n\n*Agradece al Dios Yerson.* 🙏`,
     });
     
   } catch (error) {
@@ -325,7 +309,6 @@ router.post('/take', async (req: Request, res: Response) => {
 
     console.log(`📤 Usuario ${user.username} tomando apuesta`);
 
-    // Crear partidos en BD
     const matchPromises = combinada.picks.map(async (pick: any) => {
       const matchId = pick.matchId || `match_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       
@@ -349,7 +332,6 @@ router.post('/take', async (req: Request, res: Response) => {
     
     const matchIds = await Promise.all(matchPromises);
 
-    // Crear la apuesta
     const bet = await db.bet.create({
       data: {
         userId: user.id,
