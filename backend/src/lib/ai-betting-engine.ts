@@ -456,7 +456,37 @@ export function generatePickForMatch(match: {
   matchDate: string;
 }): MatchPick {
   const analysis = analyzeMatch(match.homeTeam, match.awayTeam, match.league);
-  const bestPick = analysis.picks[0];
+  
+  // FILTRAR: NO incluir "Más de 0.5 goles" - muy genérico y poco específico
+  // Solo excluir exactamente "0.5 goles", no "1.5" ni otros
+  const validPicks = analysis.picks.filter(p => {
+    const label = p.label.toLowerCase();
+    // Excluir solo "0.5 goles" (muy genérico)
+    if (label.includes('0.5 goles') || label.includes('0.5 gole')) {
+      return false;
+    }
+    return true;
+  });
+  
+  // Si no quedan picks válidos, usar el por defecto
+  if (validPicks.length === 0) {
+    return {
+      matchId: match.id,
+      homeTeam: analysis.homeTeam,
+      awayTeam: analysis.awayTeam,
+      league: analysis.league,
+      matchDate: match.matchDate,
+      pick: `${analysis.homeTeam} gana o empata (1X)`,
+      odds: 1.45,
+      probability: 0.69,
+      analysis: `Pick conservador. ${analysis.homeTeam} (${analysis.stats.homeStrength}) vs ${analysis.awayTeam} (${analysis.stats.awayStrength}).`,
+      status: 'pending'
+    };
+  }
+  
+  // ELEGIR el pick de MENOR RIESGO (mayor probabilidad)
+  // Ya están ordenados por probabilidad descendente
+  const bestPick = validPicks[0];
   
   return {
     matchId: match.id,
