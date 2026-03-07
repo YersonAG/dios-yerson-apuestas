@@ -169,17 +169,8 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
     }
   }
   
-  // Ordenar: LATAM primero, luego por prioridad, luego por fecha
-  const paisesLATAM = ['Colombia', 'Argentina', 'Brasil', 'México', 'Chile', 'Ecuador', 'Perú', 'Uruguay', 'Paraguay', 'Venezuela', 'Bolivia', 'Sudamérica'];
-  
+  // Ordenar SOLO por fecha (más próximos primero)
   allMatches.sort((a, b) => {
-    // LATAM primero
-    const aIsLATAM = paisesLATAM.includes(a.country);
-    const bIsLATAM = paisesLATAM.includes(b.country);
-    if (aIsLATAM && !bIsLATAM) return -1;
-    if (!aIsLATAM && bIsLATAM) return 1;
-    
-    // Luego por fecha
     return new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime();
   });
   
@@ -197,15 +188,8 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
   cachedMatches = filteredMatches;
   cacheTime = Date.now();
   
-  // Log resumen por región
-  const latam = filteredMatches.filter(m => paisesLATAM.includes(m.country)).length;
-  const europa = filteredMatches.filter(m => ['Inglaterra', 'España', 'Italia', 'Alemania', 'Francia', 'Holanda', 'Portugal', 'Bélgica', 'Turquía', 'Escocia', 'Grecia', 'Europa'].includes(m.country)).length;
-  const otros = filteredMatches.length - latam - europa;
-  
-  console.log(`\n✅ TOTAL: ${filteredMatches.length} partidos`);
-  console.log(`   🌎 LATAM: ${latam}`);
-  console.log(`   🇪🇺 Europa: ${europa}`);
-  console.log(`   🌍 Otros: ${otros}`);
+  // Log resumen
+  console.log(`\n✅ TOTAL: ${filteredMatches.length} partidos (ordenados por fecha)`);
   
   return filteredMatches;
 }
