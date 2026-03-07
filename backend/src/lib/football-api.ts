@@ -1,9 +1,6 @@
 // API de Fútbol - El Dios Yerson
-// 🚀 SCRAPER con Playwright + Cheerio
-// Fuente: Flashscore.com (HTML renderizado con JavaScript)
-
-import { chromium, Browser } from 'playwright';
-import * as cheerio from 'cheerio';
+// 📺 Fuente: ESPN (GRATIS, sin límites, todas las ligas)
+// Con parámetro de fechas para próximos 7 días
 
 // ===== INTERFACES =====
 export interface MatchForApp {
@@ -42,236 +39,42 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 // Cache de estadísticas
 const teamStatsCache = new Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>();
 
-// ===== BROWSER SINGLETON =====
-let browserInstance: Browser | null = null;
+// ===== ESPN API =====
+const ESPN_API = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
 
-async function getBrowser(): Promise<Browser> {
-  if (!browserInstance) {
-    console.log('🌐 Iniciando navegador Playwright...');
-    browserInstance = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ]
-    });
-  }
-  return browserInstance;
-}
+console.log('⚽ Fuente: ESPN (GRATIS, sin límites, todas las ligas)');
 
-// Cerrar browser al terminar el proceso
-process.on('SIGINT', async () => {
-  if (browserInstance) {
-    await browserInstance.close();
-  }
-  process.exit();
-});
-
-console.log('⚽ Scraper: Playwright + Cheerio → Flashscore.com');
-
-// ===== LIGAS PRINCIPALES (solo las que usan casas de apuestas LATAM) =====
-// Solo aceptar estas ligas específicas
-const ALLOWED_LEAGUES = [
-  // === LATAM ===
-  'liga betplay', 'primera a', 'categoria', 'colombia',
-  'liga profesional', 'argentina', 'boca', 'river', 'racing', 'independiente',
-  'brasileirão', 'brasileirao', 'serie a brazil', 'brazil serie',
-  'liga mx', 'mexico', 'méxico', 'liga bbva mx',
-  'primera chile', 'chile', 'colocolo', 'u. catolica', 'universidad',
-  'liga pro ecuador', 'ecuador', 'ldu', 'barcelona sc', 'emelec',
-  'liga 1 peru', 'peru', 'perú', 'alianza', 'universitario',
-  // === Copas LATAM ===
-  'copa libertadores', 'libertadores', 'conmebol',
-  'copa sudamericana', 'sudamericana',
-  // === Europa Top 5 ===
-  'premier league', 'england', 'inglaterra', 'manchester', 'liverpool', 'chelsea', 'arsenal', 'tottenham',
-  'la liga', 'laliga', 'spain', 'españa', 'barcelona', 'real madrid', 'atletico', 'sevilla', 'valencia',
-  'serie a', 'italy', 'italia', 'juventus', 'milan', 'inter', 'napoli', 'roma', 'lazio',
-  'bundesliga', 'germany', 'alemania', 'bayern', 'dortmund', 'leipzig', 'leverkusen',
-  'ligue 1', 'france', 'francia', 'psg', 'marseille', 'lyon',
-  // === Copas Europa ===
-  'champions league', 'ucl', 'champions',
-  'europa league', 'uel', 'europa',
-  'conference league',
-  'fa cup', 'copa del rey', 'coppa italia', 'dfb pokal', 'coupe de france',
-  // === Otros populares en LATAM ===
-  'mls', 'major league soccer', 'inter miami', 'la galaxy',
-  'eredivisie', 'netherlands', 'holanda', 'ajax', 'psv', 'feyenoord',
-  'primeira liga', 'portugal', 'benfica', 'porto', 'sporting',
+// ===== LIGAS ESPN (las que usan casas de apuestas LATAM) =====
+const ESPN_LEAGUES = [
+  // LATAM
+  { code: 'col.1', name: 'Liga BetPlay', country: 'Colombia' },
+  { code: 'arg.1', name: 'Liga Argentina', country: 'Argentina' },
+  { code: 'bra.1', name: 'Brasileirão', country: 'Brasil' },
+  { code: 'mex.1', name: 'Liga MX', country: 'México' },
+  { code: 'chi.1', name: 'Primera Chile', country: 'Chile' },
+  { code: 'ecu.1', name: 'Liga Pro', country: 'Ecuador' },
+  { code: 'per.1', name: 'Liga 1', country: 'Perú' },
+  
+  // Europa Top 5
+  { code: 'eng.1', name: 'Premier League', country: 'Inglaterra' },
+  { code: 'esp.1', name: 'La Liga', country: 'España' },
+  { code: 'ita.1', name: 'Serie A', country: 'Italia' },
+  { code: 'ger.1', name: 'Bundesliga', country: 'Alemania' },
+  { code: 'fra.1', name: 'Ligue 1', country: 'Francia' },
+  
+  // Copas Europa
+  { code: 'uefa.champions', name: 'Champions League', country: 'Europa' },
+  { code: 'uefa.europa', name: 'Europa League', country: 'Europa' },
+  { code: 'eng.fa', name: 'FA Cup', country: 'Inglaterra' },
+  
+  // Otros
+  { code: 'usa.1', name: 'MLS', country: 'Estados Unidos' },
+  { code: 'ned.1', name: 'Eredivisie', country: 'Holanda' },
+  { code: 'por.1', name: 'Primeira Liga', country: 'Portugal' },
+  { code: 'tur.1', name: 'Süper Lig', country: 'Turquía' },
 ];
 
-// Función para verificar si una liga está permitida
-function isAllowedLeague(leagueText: string): boolean {
-  const text = leagueText.toLowerCase();
-  
-  // Rechazar ligas menores
-  const REJECT = ['u19', 'u18', 'u20', 'u17', 'women', 'w ', ' w', 'reserves', 'b team', 
-                  'youth', 'primavera', 'swazi', 'benin', 'fiji', 'vanuatu'];
-  if (REJECT.some(r => text.includes(r))) return false;
-  
-  // Verificar ligas permitidas
-  return ALLOWED_LEAGUES.some(l => text.includes(l));
-}
-
-// Función para extraer país y liga del header
-function parseLeagueHeader(headerText: string): { league: string; country: string } {
-  // Formato típico: "Ligue 1FRANCE: Standings" o "BundesligaGERMANY:"
-  const text = headerText.replace(/Standings|Live|display matches/gi, '').trim();
-  
-  // Buscar país en mayúsculas
-  const countryMatch = text.match(/[A-Z]{2,}(?::|$|\s)/);
-  let country = countryMatch ? countryMatch[0].replace(':', '').trim() : '';
-  
-  // Mapear países
-  const countryMap: Record<string, string> = {
-    'FRANCE': 'Francia', 'GERMANY': 'Alemania', 'ITALY': 'Italia',
-    'SPAIN': 'España', 'ENGLAND': 'Inglaterra', 'NETHERLANDS': 'Holanda',
-    'PORTUGAL': 'Portugal', 'BELGIUM': 'Bélgica', 'BRAZIL': 'Brasil',
-    'ARGENTINA': 'Argentina', 'COLOMBIA': 'Colombia', 'MEXICO': 'México',
-    'CHILE': 'Chile', 'ECUADOR': 'Ecuador', 'PERU': 'Perú', 'URUGUAY': 'Uruguay',
-    'PARAGUAY': 'Paraguay', 'VENEZUELA': 'Venezuela', 'BOLIVIA': 'Bolivia',
-    'ASIA': 'Asia', 'USA': 'Estados Unidos', 'AUSTRALIA': 'Australia',
-    'TURKEY': 'Turquía', 'GREECE': 'Grecia', 'RUSSIA': 'Rusia',
-  };
-  
-  country = countryMap[country] || country;
-  
-  // Liga es el resto del texto
-  let league = text.replace(/[A-Z]{2,}(?::|$|\s)/g, '').trim();
-  
-  return { league: league || headerText.substring(0, 30), country };
-}
-
-// ===== FUNCIÓN PRINCIPAL DE SCRAPING =====
-async function scrapeFlashscore(): Promise<MatchForApp[]> {
-  const browser = await getBrowser();
-  const matches: MatchForApp[] = [];
-  
-  try {
-    const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-    
-    const page = await context.newPage();
-    
-    console.log('  📡 Navegando a Flashscore...');
-    await page.goto('https://www.flashscore.com/', { 
-      waitUntil: 'networkidle', 
-      timeout: 45000 
-    });
-    
-    // Esperar a que carguen los partidos
-    await page.waitForSelector('.event__match', { timeout: 20000 }).catch(() => {});
-    await page.waitForTimeout(3000);
-    
-    // Expandir ligas colapsadas
-    const moreButtons = await page.$$('.event__more');
-    if (moreButtons.length > 0) {
-      console.log(`  📂 Expandiendo ${moreButtons.length} ligas...`);
-      for (const button of moreButtons.slice(0, 30)) {
-        await button.click().catch(() => {});
-        await page.waitForTimeout(150);
-      }
-    }
-    
-    const html = await page.content();
-    await context.close();
-    
-    console.log(`  📄 HTML: ${(html.length / 1024).toFixed(0)}KB`);
-    
-    // Parsear con Cheerio
-    const $ = cheerio.load(html);
-    
-    let currentLeague = '';
-    let currentCountry = '';
-    const today = new Date().toISOString().split('T')[0];
-    
-    // Iterar sobre todos los elementos en orden
-    $('.sportName.soccer > div').each((_, el) => {
-      const element = $(el);
-      const classAttr = element.attr('class') || '';
-      
-      // Si es un header de liga/torneo
-      if (classAttr.includes('event__header') || classAttr.includes('header')) {
-        const headerText = element.text().trim();
-        if (headerText && !headerText.includes('Standings')) {
-          const parsed = parseLeagueHeader(headerText);
-          currentLeague = parsed.league;
-          currentCountry = parsed.country;
-        }
-        return;
-      }
-      
-      // Si es un partido
-      if (classAttr.includes('event__match')) {
-        // Verificar que la liga esté permitida
-        const leagueText = `${currentLeague} ${currentCountry}`;
-        if (!isAllowedLeague(leagueText)) {
-          return;
-        }
-        
-        // Extraer equipos - buscar en elementos con participant
-        const homeEl = element.find('[class*="homeParticipant"], .event__homeParticipant');
-        const awayEl = element.find('[class*="awayParticipant"], .event__awayParticipant');
-        
-        const homeTeam = homeEl.find('span').last().text().trim() || homeEl.text().trim();
-        const awayTeam = awayEl.find('span').last().text().trim() || awayEl.text().trim();
-        
-        // Extraer logos
-        const homeLogo = homeEl.find('img').attr('src') || '';
-        const awayLogo = awayEl.find('img').attr('src') || '';
-        
-        // Extraer hora/estado
-        const timeText = element.find('.event__time').text().trim();
-        const stageText = element.find('.event__stage').text().trim();
-        
-        // Determinar estado
-        let status = 'Scheduled';
-        if (stageText.toLowerCase().includes('finished') || stageText.includes('FT')) {
-          status = 'FT';
-        } else if (stageText.includes("'") || stageText.toLowerCase().includes('live')) {
-          status = 'LIVE';
-        } else if (timeText) {
-          status = timeText;
-        }
-        
-        // Crear fecha
-        let matchDate = today;
-        if (timeText && timeText.includes(':')) {
-          matchDate = `${today}T${timeText}:00`;
-        }
-        
-        // ID único
-        const matchId = `fs_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        if (homeTeam && awayTeam && homeTeam.length > 1 && awayTeam.length > 1) {
-          matches.push({
-            id: matchId,
-            homeTeam,
-            awayTeam,
-            league: currentLeague || 'Liga',
-            country: currentCountry || 'Internacional',
-            matchDate,
-            status,
-            homeLogo,
-            awayLogo,
-          });
-        }
-      }
-    });
-    
-    console.log(`    ✅ ${matches.length} partidos de ligas permitidas`);
-    
-  } catch (error) {
-    console.error(`    ❌ Error:`, error);
-  }
-  
-  return matches;
-}
-
-// ===== FUNCIÓN PRINCIPAL EXPORTADA =====
+// ===== FUNCIÓN PRINCIPAL =====
 export async function getUpcomingMatches(days: number = 7): Promise<MatchForApp[]> {
   // Verificar cache
   if (cachedMatches.length > 0 && Date.now() - cacheTime < CACHE_DURATION) {
@@ -279,20 +82,96 @@ export async function getUpcomingMatches(days: number = 7): Promise<MatchForApp[
     return cachedMatches;
   }
   
-  console.log('🌐 Obteniendo partidos con Playwright...');
+  console.log('🌐 Obteniendo partidos de ESPN...');
   const startTime = Date.now();
   
   const allMatches: MatchForApp[] = [];
+  const seenIds = new Set<string>();
   
-  try {
-    const matches = await scrapeFlashscore();
-    allMatches.push(...matches);
-  } catch (error) {
-    console.error('❌ Error general:', error);
+  // Generar las 7 fechas (formato YYYYMMDD para ESPN)
+  const fechas = Array.from({ length: days }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return d.toISOString().split('T')[0].replace(/-/g, ''); // "20260307"
+  });
+  
+  console.log(`📅 Fechas: ${fechas.join(', ')}`);
+  
+  // Crear todas las peticiones: por cada liga, por cada fecha
+  const requests: Promise<{ fecha: string; league: typeof ESPN_LEAGUES[0]; data: any }>[] = [];
+  
+  for (const league of ESPN_LEAGUES) {
+    for (const fecha of fechas) {
+      requests.push(
+        fetch(`${ESPN_API}/${league.code}/scoreboard?dates=${fecha}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: AbortSignal.timeout(10000)
+        })
+        .then(r => r.json())
+        .then(data => ({ fecha, league, data }))
+        .catch(() => ({ fecha, league, data: { events: [] } }))
+      );
+    }
+  }
+  
+  console.log(`📡 Haciendo ${requests.length} peticiones en paralelo...`);
+  
+  // Ejecutar todas las peticiones en paralelo
+  const responses = await Promise.all(requests);
+  
+  // Procesar respuestas
+  for (const { fecha, league, data } of responses) {
+    const events = data.events || [];
+    
+    for (const event of events) {
+      // Saltar partidos ya terminados
+      if (event.status?.type?.completed === true) continue;
+      
+      const matchId = `espn_${event.id}`;
+      if (seenIds.has(matchId)) continue;
+      seenIds.add(matchId);
+      
+      // Extraer equipos
+      const homeTeam = event.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === 'home');
+      const awayTeam = event.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === 'away');
+      
+      // Determinar estado
+      let status = 'Scheduled';
+      const statusType = event.status?.type?.state || '';
+      if (statusType === 'in') {
+        status = 'LIVE';
+      } else if (statusType === 'post') {
+        status = 'FT';
+      } else if (event.status?.type?.shortDetail) {
+        status = event.status.type.shortDetail;
+      }
+      
+      // Crear fecha completa
+      let matchDate = event.date;
+      if (fecha && event.date) {
+        // Asegurar formato ISO
+        matchDate = event.date;
+      }
+      
+      allMatches.push({
+        id: matchId,
+        homeTeam: homeTeam?.team?.displayName || 'TBD',
+        awayTeam: awayTeam?.team?.displayName || 'TBD',
+        league: league.name,
+        country: league.country,
+        matchDate,
+        status,
+        homeLogo: homeTeam?.team?.logo,
+        awayLogo: awayTeam?.team?.logo,
+        leagueLogo: data.leagues?.[0]?.logos?.[0]?.href,
+        homeTeamId: parseInt(homeTeam?.team?.id || '0'),
+        awayTeamId: parseInt(awayTeam?.team?.id || '0'),
+      });
+    }
   }
   
   // Ordenar por fecha
-  allMatches.sort((a, b) => a.matchDate.localeCompare(b.matchDate));
+  allMatches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
   
   // Actualizar cache
   cachedMatches = allMatches;
@@ -300,6 +179,16 @@ export async function getUpcomingMatches(days: number = 7): Promise<MatchForApp[
   
   const elapsed = Date.now() - startTime;
   console.log(`\n✅ TOTAL: ${allMatches.length} partidos en ${(elapsed/1000).toFixed(1)}s`);
+  
+  // Resumen por liga
+  const byLeague = new Map<string, number>();
+  for (const m of allMatches) {
+    byLeague.set(m.league, (byLeague.get(m.league) || 0) + 1);
+  }
+  console.log('\n📊 Por liga:');
+  for (const [league, count] of byLeague) {
+    console.log(`  ${league}: ${count}`);
+  }
   
   return allMatches;
 }
@@ -312,7 +201,57 @@ export function getTeamStats(teamId: number | undefined): { goalsFor: number; go
 
 // ===== RESULTADOS =====
 export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]> {
-  return [];
+  const results: MatchResult[] = [];
+  
+  try {
+    // Obtener partidos de hoy
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    
+    for (const league of ESPN_LEAGUES) {
+      const response = await fetch(
+        `${ESPN_API}/${league.code}/scoreboard?dates=${today}`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' } }
+      );
+      
+      if (!response.ok) continue;
+      
+      const data = await response.json();
+      const events = data.events || [];
+      
+      for (const event of events) {
+        const matchId = `espn_${event.id}`;
+        if (!matchIds.includes(matchId)) continue;
+        if (!event.status?.type?.completed) continue;
+        
+        const homeTeam = event.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === 'home');
+        const awayTeam = event.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === 'away');
+        
+        const homeScore = parseInt(homeTeam?.score || '0');
+        const awayScore = parseInt(awayTeam?.score || '0');
+        
+        let winner: 'home' | 'away' | 'draw' = 'draw';
+        if (homeScore > awayScore) winner = 'home';
+        else if (awayScore > homeScore) winner = 'away';
+        
+        results.push({
+          id: matchId,
+          homeTeam: homeTeam?.team?.displayName || 'TBD',
+          awayTeam: awayTeam?.team?.displayName || 'TBD',
+          league: league.name,
+          matchDate: event.date,
+          status: 'FT',
+          homeScore,
+          awayScore,
+          winner,
+          totalGoals: homeScore + awayScore,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error resultados:', error);
+  }
+  
+  return results;
 }
 
 // ===== EVALUAR PICK =====
