@@ -1,42 +1,9 @@
-// API de Fútbol Real - El Dios Yerson
-// Usa API-Football (RapidAPI) - Gratis: 100 requests/día
-// Esta API tiene MUCHOS más partidos disponibles
+// API de Fútbol - El Dios Yerson
+// Usa MÚLTIPLES APIs para maximizar partidos disponibles
 
-interface ApiFixture {
-  fixture: {
-    id: number;
-    date: string;
-    status: { short: string; long: string };
-    venue?: { name: string; city: string };
-  };
-  league: {
-    id: number;
-    name: string;
-    country: string;
-    logo: string;
-    round: string;
-  };
-  teams: {
-    home: { id: number; name: string; logo: string };
-    away: { id: number; name: string; logo: string };
-  };
-  goals?: {
-    home: number | null;
-    away: number | null;
-  };
-}
+import { getTeamStats } from './ai-betting-engine';
 
-interface ApiTeamStats {
-  team: { id: number; name: string };
-  league: { id: number; name: string };
-  fixtures: { played: { total: number } };
-  goals: {
-    for: { total: { total: number }; average: { home: string; away: string } };
-    against: { total: { total: number } };
-  };
-  form?: string;
-}
-
+// ===== INTERFACES =====
 export interface MatchForApp {
   id: string;
   homeTeam: string;
@@ -52,276 +19,262 @@ export interface MatchForApp {
   awayTeamId?: number;
 }
 
-// API-Football (RapidAPI) - Usar FOOTBALL_API_KEY
-const API_KEY = process.env.FOOTBALL_API_KEY || process.env.FOOTBALL_DATA_API_KEY || 'demo';
-const API_URL = 'https://api-football-v1.p.rapidapi.com/v3';
-
-const getHeaders = () => ({
-  'X-RapidAPI-Key': API_KEY,
-  'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com'
-});
-
-// Cache
+export interface MatchResult {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  matchDate: string;
+  status: string;
+  homeScore: number;
+  awayScore: number;
+  winner: 'home' | 'away' | 'draw';
+  totalGoals: number;
+}
+// ===== CACHE =====
 let cachedMatches: MatchForApp[] = [];
 let cacheTime = 0;
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutos
 
-// Cache de estadísticas
+// Cache de estadísticas de equipos
 const teamStatsCache = new Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>();
-
-// Ligas principales a buscar
-const MAIN_LEAGUES = [
-  { id: 39, name: 'Premier League', country: 'Inglaterra' },
-  { id: 140, name: 'La Liga', country: 'España' },
-  { id: 135, name: 'Serie A', country: 'Italia' },
-  { id: 78, name: 'Bundesliga', country: 'Alemania' },
-  { id: 61, name: 'Ligue 1', country: 'Francia' },
-  { id: 88, name: 'Eredivisie', country: 'Holanda' },
-  { id: 94, name: 'Primeira Liga', country: 'Portugal' },
-  { id: 128, name: 'Liga BetPlay', country: 'Colombia' },
-  { id: 2, name: 'Champions League', country: 'Europa' },
-  { id: 13, name: 'Copa Libertadores', country: 'Sudamérica' },
+// ===== API 1: FOOTBALL-DATA.ORG =====
+const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_API_KEY || '435367d92f8344c887a47200a1f34b13';
+const FOOTBALL_DATA_URL = 'https://api.football-data.org/v4';
+// ===== API 2: API-FOOTBALL (RAPIDAPI) =====
+const RAPIDAPI_KEY = process.env.FOOTBALL_API_KEY || '';
+const RAPIDAPI_URL = 'https://api-football-v1.p.rapidapi.com/v3';
+// ===== COMPETICIONES CONOCidas =====
+const COMPETITIONS = [
+  { id: 39, name: 'Premier League', country: 'Inglaterra', fdCode: 'PL' },
+  { id: 140, name: 'La Liga', country: 'España', fdCode: 'PD' },
+  { id: 135, name: 'Serie A', country: 'Italia', fdCode: 'SA' },
+  { id: 78, name: 'Bundesliga', country: 'Alemania', fdCode: 'BL1' },
+  { id: 61, name: 'Ligue 1', country: 'Francia', fdCode: 'FL1' },
+  { id: 88, name: 'Eredivisie', country: 'Holanda', fdCode: 'DED' },
+  { id: 94, name: 'Primeira Liga', country: 'Portugal', fdCode: 'PPL' },
 ];
-
-// ===== OBTENER STANDINGS DE UNA LIGA =====
-async function fetchStandings(leagueId: number): Promise<void> {
+// ===== OBTENER STANDINGS DE FOOTBALL-DATA =====
+async function fetchStandingsFromFD(competitionCode: string): Promise<void> {
   try {
-    const season = new Date().getFullYear();
     const response = await fetch(
-      `${API_URL}/standings?league=${leagueId}&season=${season}`,
-      { headers: getHeaders(), signal: AbortSignal.timeout(8000) }
+      `${FOOTBALL_DATA_URL}/competitions/${competitionCode}/standings`,
+      { 
+        headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
+        signal: AbortSignal.timeout(8000)
+      }
     );
-    
     if (!response.ok) return;
+    const data = await response.json();
+    const table = data.standings?.[0]?.table;
+    
+    if (table) {
+      for (const row of table) {
+        const games = Math.max(1, row.playedGames || 1);
+        teamStatsCache.set(row.team.id, {
+          goalsFor: Math.round((row.goalsFor / games) * 100) / 100,
+          goalsAgainst: Math.round((row.goalsAgainst / games) * 100) / 100,
+          form: row.form || 'W,D,W,L,W',
+          position: row.position,
+        });
+      }
+      console.log(`📊 Standings FD ${competitionCode}: ${table.length} equipos`);
+    }
+  } catch (error) {
+    console.log(`⚠️ Error standings FD ${competitionCode}`);
+  }
+}
+// ===== OBTENER PARTIDOS DE FOOTBALL-DATA =====
+async function fetchFromFootballData(): Promise<MatchForApp[]> {
+  const matches: MatchForApp[] = [];
+  
+  try {
+    console.log('📡 Football-data.org...');
+    const response = await fetch(
+      `${FOOTBALL_DATA_URL}/matches?status=SCHEDULED`,
+      { 
+        headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
+        signal: AbortSignal.timeout(10000)
+      }
+    );
+    if (!response.ok) {
+      console.log(`⚠️ FD error: ${response.status}`);
+      return matches;
+    }
     
     const data = await response.json();
-    const standings = data.response?.[0]?.league?.standings?.[0];
+    const apiMatches = data.matches || [];
     
-    if (standings) {
-      for (const row of standings) {
-        const games = Math.max(1, row.games?.played || row.all?.played || 1);
-        teamStatsCache.set(row.team.id, {
-          goalsFor: Math.round(((row.all?.goals?.for || row.goalsFor || 0) / games) * 100) / 100,
-          goalsAgainst: Math.round(((row.all?.goals?.against || row.goalsAgainst || 0) / games) * 100) / 100,
-          form: row.form || row.description || 'W,D,W,L,W',
-          position: row.rank || row.position || 1,
-        });
-      }
-      console.log(`✅ Standings liga ${leagueId}: ${standings.length} equipos`);
+    console.log(`✅ Football-data: ${apiMatches.length} partidos`);
+    
+    for (const match of apiMatches) {
+      matches.push({
+        id: `fd_${match.id}`,
+        homeTeam: match.homeTeam.name,
+        awayTeam: match.awayTeam.name,
+        league: match.competition.name,
+        country: COMPETITIONS.find(c => c.fdCode === match.competition.code)?.country || 'Internacional',
+        matchDate: match.utcDate,
+        status: 'NS',
+        homeLogo: match.homeTeam.crest,
+        awayLogo: match.awayTeam.crest,
+        leagueLogo: match.competition.emblem,
+        homeTeamId: match.homeTeam.id,
+        awayTeamId: match.awayTeam.id,
+      });
     }
+    
+    return matches;
   } catch (error) {
-    console.log(`⚠️ Error standings liga ${leagueId}`);
+    console.log('⚠️ Error FD:', error);
+    return [];
   }
 }
-
-// ===== OBTENER PARTIDOS PRÓXIMOS =====
-export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp[]> {
-  // Verificar cache
-  if (cachedMatches.length > 0 && Date.now() - cacheTime < CACHE_DURATION) {
-    console.log('📦 Usando cache:', cachedMatches.length, 'partidos');
-    const now = new Date();
-    return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime() + 30 * 60 * 1000);
-  }
+// ===== OBTENER PARTIDOS DE RAPIDAPI =====
+async function fetchFromRapidAPI(): Promise<MatchForApp[]> {
+  const matches: MatchForApp[] = [];
   
-  console.log('🌐 Obteniendo partidos de API-Football (RapidAPI)...');
-  console.log('🔑 API Key:', API_KEY.substring(0, 8) + '...');
+  if (!RAPIDAPI_KEY) {
+    console.log('⚠️ No hay RAPIDAPI_KEY configurada');
+    return matches;
+  }
   
   try {
-    const today = new Date();
-    const fromDate = today.toISOString().split('T')[0];
+    console.log('📡 RapidAPI (api-football)...');
+    const today = new Date().toISOString().split('T')[0];
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const toDate = nextWeek.toISOString().split('T')[0];
     
-    const toDate = new Date();
-    toDate.setDate(toDate.getDate() + days);
-    const toDateStr = toDate.toISOString().split('T')[0];
-    
-    // Obtener partidos de las ligas principales
-    const allMatches: MatchForApp[] = [];
-    
-    // 1. Obtener partidos generales (todos los disponibles)
-    const generalResponse = await fetch(
-      `${API_URL}/fixtures?date=${fromDate}&to=${toDateStr}`,
-      { headers: getHeaders(), signal: AbortSignal.timeout(15000) }
+    const response = await fetch(
+      `${RAPIDAPI_URL}/fixtures?date=${today}&to=${toDate}`,
+      {
+        headers: {
+          'X-RapidAPI-Key': RAPIDAPI_KEY,
+          'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com'
+        },
+        signal: AbortSignal.timeout(10000)
+      }
     );
     
-    if (generalResponse.ok) {
-      const data = await generalResponse.json();
-      const fixtures: ApiFixture[] = data.response || [];
-      
-      console.log(`📊 API: ${fixtures.length} partidos totales`);
-      
-      // Filtrar solo partidos que no han comenzado
-      const now = new Date();
-      const upcomingFixtures = fixtures.filter(f => {
-        const matchDate = new Date(f.fixture.date);
-        const status = f.fixture.status.short;
-        // NS = Not Started, TBD = To Be Determined
-        const isUpcoming = ['NS', 'TBD', 'PENDING'].includes(status);
-        const isFuture = matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
-        return isUpcoming && isFuture;
-      });
-      
-      console.log(`📊 Partidos futuros: ${upcomingFixtures.length}`);
-      
-      for (const fixture of upcomingFixtures) {
-        // Buscar info de la liga
-        const leagueInfo = MAIN_LEAGUES.find(l => l.id === fixture.league.id);
-        
-        allMatches.push({
-          id: `api_${fixture.fixture.id}`,
-          homeTeam: fixture.teams.home.name,
-          awayTeam: fixture.teams.away.name,
-          league: fixture.league.name,
-          country: fixture.league.country || leagueInfo?.country || 'Internacional',
-          matchDate: fixture.fixture.date,
-          status: fixture.fixture.status.short,
-          homeLogo: fixture.teams.home.logo,
-          awayLogo: fixture.teams.away.logo,
-          leagueLogo: fixture.league.logo,
-          homeTeamId: fixture.teams.home.id,
-          awayTeamId: fixture.teams.away.id,
-        });
-      }
-    } else {
-      console.log(`⚠️ API respondió: ${generalResponse.status}`);
+    if (!response.ok) {
+      console.log(`⚠️ RapidAPI error: ${response.status}`);
+      return matches;
     }
     
-    // 2. Si hay pocas, buscar por cada liga principal
-    if (allMatches.length < 30) {
-      for (const league of MAIN_LEAGUES.slice(0, 6)) {
-        try {
-          const leagueResponse = await fetch(
-            `${API_URL}/fixtures?league=${league.id}&next=10`,
-            { headers: getHeaders(), signal: AbortSignal.timeout(8000) }
-          );
-          
-          if (leagueResponse.ok) {
-            const data = await leagueResponse.json();
-            const fixtures: ApiFixture[] = data.response || [];
-            
-            for (const fixture of fixtures) {
-              const exists = allMatches.some(m => m.id === `api_${fixture.fixture.id}`);
-              if (!exists) {
-                allMatches.push({
-                  id: `api_${fixture.fixture.id}`,
-                  homeTeam: fixture.teams.home.name,
-                  awayTeam: fixture.teams.away.name,
-                  league: league.name,
-                  country: league.country,
-                  matchDate: fixture.fixture.date,
-                  status: fixture.fixture.status.short,
-                  homeLogo: fixture.teams.home.logo,
-                  awayLogo: fixture.teams.away.logo,
-                  leagueLogo: fixture.league.logo,
-                  homeTeamId: fixture.teams.home.id,
-                  awayTeamId: fixture.teams.away.id,
-                });
-              }
-            }
-          }
-          
-          await new Promise(r => setTimeout(r, 300)); // Rate limit
-        } catch (e) {
-          console.log(`⚠️ Error liga ${league.name}`);
-        }
-      }
-    }
+    const data = await response.json();
+    const fixtures = data.response || [];
     
-    // 3. Obtener standings para datos reales
-    for (const league of MAIN_LEAGUES.slice(0, 5)) {
-      await fetchStandings(league.id);
-      await new Promise(r => setTimeout(r, 300));
-    }
-    
-    // Ordenar por fecha
-    allMatches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
-    
-    // Filtrar por rango de fechas
+    // Filtrar solo partidos que no han comenzado
     const now = new Date();
-    const maxDate = new Date();
-    maxDate.setDate(maxDate.getDate() + days);
-    
-    const filteredMatches = allMatches.filter(m => {
-      const date = new Date(m.matchDate);
-      return date >= now && date <= maxDate;
+    const upcoming = fixtures.filter((f: any) => {
+      const status = f.fixture?.status?.short;
+      return ['NS', 'TBD'].includes(status);
     });
     
-    // Actualizar cache
-    cachedMatches = filteredMatches;
-    cacheTime = Date.now();
+    console.log(`✅ RapidAPI: ${upcoming.length} partidos`);
     
-    console.log(`✅ Total partidos REALES: ${filteredMatches.length}`);
-    
-    // Si aún hay pocos, usar fallback
-    if (filteredMatches.length < 20) {
-      console.log('⚠️ Pocos partidos, usando fallback adicional');
-      const fallback = generateFallbackMatches(filteredMatches);
-      const combined = [...filteredMatches, ...fallback];
-      combined.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
-      cachedMatches = combined;
-      return combined;
+    for (const fixture of upcoming) {
+      matches.push({
+        id: `ra_${fixture.fixture.id}`,
+        homeTeam: fixture.teams.home.name,
+        awayTeam: fixture.teams.away.name,
+        league: fixture.league.name,
+        country: fixture.league.country,
+        matchDate: fixture.fixture.date,
+        status: 'NS',
+        homeLogo: fixture.teams.home.logo,
+        awayLogo: fixture.teams.away.logo,
+        leagueLogo: fixture.league.logo,
+        homeTeamId: fixture.teams.home.id,
+        awayTeamId: fixture.teams.away.id,
+      });
     }
     
-    return filteredMatches;
-    
+    return matches;
   } catch (error) {
-    console.error('❌ Error con API:', error);
-    return generateFallbackMatches([]);
+    console.log('⚠️ Error RapidAPI:', error);
+    return [];
   }
 }
-
-// ===== OBTENER STATS DE UN EQUIPO =====
-export function getTeamStats(teamId: number | undefined): { goalsFor: number; goalsAgainst: number; form: string; position: number } | null {
-  if (!teamId) return null;
-  return teamStatsCache.get(teamId) || null;
-}
-
-// ===== FALLBACK =====
-function generateFallbackMatches(existingMatches: MatchForApp[]): MatchForApp[] {
+// ===== FALLBACK: Partidos basados en equipos reales =====
+function generateFallbackMatches(): MatchForApp[] {
   const now = new Date();
-  const existingKeys = new Set(existingMatches.map(m => `${m.homeTeam}-${m.awayTeam}`));
+  const matches: MatchForApp[] = [];
   
   const leagues = [
-    { name: 'Premier League', country: 'Inglaterra', teams: [
-      { name: 'Manchester City', id: 50, xG: 2.5 },
-      { name: 'Arsenal', id: 42, xG: 2.2 },
-      { name: 'Liverpool', id: 40, xG: 2.3 },
-      { name: 'Manchester United', id: 33, xG: 1.7 },
-      { name: 'Chelsea', id: 49, xG: 1.6 },
-      { name: 'Tottenham', id: 47, xG: 1.8 },
-      { name: 'Newcastle', id: 34, xG: 1.5 },
-      { name: 'Brighton', id: 51, xG: 1.5 },
-    ]},
-    { name: 'La Liga', country: 'España', teams: [
-      { name: 'Real Madrid', id: 541, xG: 2.4 },
-      { name: 'Barcelona', id: 529, xG: 2.2 },
-      { name: 'Atlético Madrid', id: 530, xG: 1.7 },
-      { name: 'Real Sociedad', id: 548, xG: 1.4 },
-      { name: 'Villarreal', id: 533, xG: 1.5 },
-      { name: 'Real Betis', id: 543, xG: 1.3 },
-    ]},
-    { name: 'Serie A', country: 'Italia', teams: [
-      { name: 'Inter Milan', id: 505, xG: 2.2 },
-      { name: 'Napoli', id: 492, xG: 2.0 },
-      { name: 'AC Milan', id: 489, xG: 1.8 },
-      { name: 'Juventus', id: 496, xG: 1.6 },
-      { name: 'Atalanta', id: 499, xG: 1.9 },
-      { name: 'Roma', id: 497, xG: 1.5 },
-    ]},
-    { name: 'Bundesliga', country: 'Alemania', teams: [
-      { name: 'Bayern Munich', id: 157, xG: 2.8 },
-      { name: 'Borussia Dortmund', id: 165, xG: 2.3 },
-      { name: 'RB Leipzig', id: 173, xG: 1.9 },
-      { name: 'Bayer Leverkusen', id: 168, xG: 2.1 },
-    ]},
-    { name: 'Ligue 1', country: 'Francia', teams: [
-      { name: 'PSG', id: 85, xG: 2.7 },
-      { name: 'Monaco', id: 91, xG: 1.8 },
-      { name: 'Marseille', id: 81, xG: 1.7 },
-      { name: 'Lille', id: 79, xG: 1.4 },
-    ]},
+    { 
+      name: 'Premier League', 
+      country: 'Inglaterra', 
+      teams: [
+        { name: 'Manchester City', id: 50, xG: 2.5 }, 
+        { name: 'Arsenal', id: 42, xG: 2.2 }, 
+        { name: 'Liverpool', id: 40, xG: 2.3 }, 
+        { name: 'Manchester United', id: 33, xG: 1.7 }, 
+        { name: 'Chelsea', id: 49, xG: 1.6 }, 
+        { name: 'Tottenham', id: 47, xG: 1.8 }, 
+        { name: 'Newcastle', id: 34, xG: 1.5 }, 
+        { name: 'Brighton', id: 51, xG: 1.5 }, 
+      ] 
+    },
+    { 
+      name: 'La Liga', 
+      country: 'España', 
+      teams: [
+        { name: 'Real Madrid', id: 541, xG: 2.4 }, 
+        { name: 'Barcelona', id: 529, xG: 2.2 }, 
+        { name: 'Atlético Madrid', id: 530, xG: 1.7 }, 
+        { name: 'Real Sociedad', id: 548, xG: 1.4 }, 
+        { name: 'Villarreal', id: 533, xG: 1.5 }, 
+        { name: 'Real Betis', id: 543, xG: 1.3 }, 
+      ] 
+    },
+    { 
+      name: 'Serie A', 
+      country: 'Italia', 
+      teams: [
+        { name: 'Inter Milan', id: 505, xG: 2.2 }, 
+        { name: 'Napoli', id: 492, xG: 2.0 }, 
+        { name: 'AC Milan', id: 489, xG: 1.8 }, 
+        { name: 'Juventus', id: 496, xG: 1.6 }, 
+        { name: 'Atalanta', id: 499, xG: 1.9 }, 
+        { name: 'Roma', id: 497, xG: 1.5 }, 
+      ] 
+    },
+    { 
+      name: 'Bundesliga', 
+      country: 'Alemania', 
+      teams: [
+        { name: 'Bayern Munich', id: 157, xG: 2.8 }, 
+        { name: 'Borussia Dortmund', id: 165, xG: 2.3 }, 
+        { name: 'RB Leipzig', id: 173, xG: 1.9 }, 
+        { name: 'Bayer Leverkusen', id: 168, xG: 2.1 }, 
+        { name: 'Stuttgart', id: 10, xG: 1.8 }, 
+      ] 
+    },
+    { 
+      name: 'Ligue 1', 
+      country: 'Francia', 
+      teams: [
+        { name: 'PSG', id: 85, xG: 2.7 }, 
+        { name: 'Monaco', id: 91, xG: 1.8 }, 
+        { name: 'Marseille', id: 81, xG: 1.7 }, 
+        { name: 'Lille', id: 79, xG: 1.4 }, 
+        { name: 'Lyon', id: 80, xG: 1.4 }, 
+      ] 
+    },
+    { 
+      name: 'Eredivisie', 
+      country: 'Holanda', 
+      teams: [
+        { name: 'PSV', id: 674, xG: 2.39 }, 
+        { name: 'AZ', id: 672, xG: 1.27 }, 
+        { name: 'Ajax', id: 673, xG: 2.1 }, 
+        { name: 'Feyenoord', id: 675, xG: 1.85 }, 
+      ] 
+    },
   ];
   
-  const matches: MatchForApp[] = [];
   let matchId = 10000;
   
   for (let day = 1; day <= 7; day++) {
@@ -338,19 +291,26 @@ function generateFallbackMatches(existingMatches: MatchForApp[]): MatchForApp[] 
         
         const home = league.teams[homeIdx];
         const away = league.teams[awayIdx];
-        const key = `${home.name}-${away.name}`;
-        
-        if (existingKeys.has(key)) continue;
-        existingKeys.add(key);
         
         const matchDate = new Date(date);
         matchDate.setHours(14 + Math.floor(Math.random() * 7), Math.floor(Math.random() * 4) * 15, 0, 0);
         
-        teamStatsCache.set(home.id, { goalsFor: home.xG, goalsAgainst: 1.1, form: 'W,D,W,L,W', position: Math.floor(Math.random() * 10) + 1 });
-        teamStatsCache.set(away.id, { goalsFor: away.xG, goalsAgainst: 1.1, form: 'W,L,W,D,W', position: Math.floor(Math.random() * 10) + 1 });
+        // Agregar stats al cache
+        teamStatsCache.set(home.id, { 
+          goalsFor: home.xG, 
+          goalsAgainst: 1.1, 
+          form: 'W,D,W,L,W', 
+          position: Math.floor(Math.random() * 10) + 1 
+        });
+        teamStatsCache.set(away.id, { 
+          goalsFor: away.xG, 
+          goalsAgainst: 1.1, 
+          form: 'W,L,W,D,W', 
+          position: Math.floor(Math.random() * 10) + 1 
+        });
         
         matches.push({
-          id: `sim_${matchId++}`,
+          id: `fb_${matchId++}`,
           homeTeam: home.name,
           awayTeam: away.name,
           league: league.name,
@@ -364,48 +324,111 @@ function generateFallbackMatches(existingMatches: MatchForApp[]): MatchForApp[] 
     }
   }
   
-  console.log(`📊 Fallback adicional: ${matches.length} partidos`);
+  console.log(`📊 Fallback: ${matches.length} partidos`);
   return matches;
 }
-
-// ===== RESULTADOS =====
-export interface MatchResult {
-  id: string;
-  homeTeam: string;
-  awayTeam: string;
-  league: string;
-  matchDate: string;
-  status: string;
-  homeScore: number;
-  awayScore: number;
-  winner: 'home' | 'away' | 'draw';
-  totalGoals: number;
+// ===== FUNCIÓN PRINCIPAL: OBTENER PARTIDOS =====
+export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp[]> {
+  // Verificar cache
+  if (cachedMatches.length > 0 && Date.now() - cacheTime < CACHE_DURATION) {
+    console.log('📦 Usando cache:', cachedMatches.length, 'partidos');
+    const now = new Date();
+    return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime() + 30 * 60 * 1000);
+  }
+  
+  console.log('🌐 Obteniendo partidos de múltiples APIs...');
+  
+  const allMatches: MatchForApp[] = [];
+  const seenIds = new Set<string>();
+  
+  // 1. Obtener de Football-data.org
+  const fdMatches = await fetchFromFootballData();
+  for (const m of fdMatches) {
+    if (!seenIds.has(m.id)) {
+      seenIds.add(m.id);
+      allMatches.push(m);
+    }
+  }
+  
+  // 2. Obtener de RapidAPI (si hay key)
+  const raMatches = await fetchFromRapidAPI();
+  for (const m of raMatches) {
+    if (!seenIds.has(m.id)) {
+      seenIds.add(m.id);
+      allMatches.push(m);
+    }
+  }
+  
+  // 3. Obtener standings para datos reales
+  for (const comp of ['PL', 'PD', 'SA', 'BL1', 'FL1', 'DED']) {
+    await fetchStandingsFromFD(comp);
+  }
+  
+  // 4. Si hay pocos partidos, usar fallback
+  if (allMatches.length < 30) {
+    const fallbackMatches = generateFallbackMatches();
+    for (const m of fallbackMatches) {
+      if (!seenIds.has(m.id)) {
+        seenIds.add(m.id);
+        allMatches.push(m);
+      }
+    }
+  }
+  
+  // Ordenar por fecha
+  allMatches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
+  
+  // Filtrar por rango de fechas
+  const now = new Date();
+  const maxDate = new Date();
+  maxDate.setDate(maxDate.getDate() + days);
+  
+  const filteredMatches = allMatches.filter(m => {
+    const date = new Date(m.matchDate);
+    return date >= now && date <= maxDate;
+  });
+  
+  // Actualizar cache
+  cachedMatches = filteredMatches;
+  cacheTime = Date.now();
+  
+  console.log(`✅ Total partidos: ${filteredMatches.length} (${fdMatches.length} FD + ${raMatches.length} RA)`);
+  
+  return filteredMatches;
 }
-
+// ===== OBTENER STATS DE EQUIPO =====
+export function getTeamStats(teamId: number | undefined): { goalsFor: number; goalsAgainst: number; form: string; position: number } | null {
+  if (!teamId) return null;
+  return teamStatsCache.get(teamId) || null;
+}
+// ===== RESULTados =====
 export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]> {
+  const results: MatchResult[] = [];
+  
   try {
     const today = new Date().toISOString().split('T')[0];
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     const fromDate = threeDaysAgo.toISOString().split('T')[0];
     
+    // Intentar con Football-data
     const response = await fetch(
-      `${API_URL}/fixtures?date=${fromDate}&to=${today}`,
-      { headers: getHeaders(), signal: AbortSignal.timeout(10000) }
+      `${FOOTBALL_DATA_URL}/matches?status=FINISHED`,
+      { 
+        headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
+        signal: AbortSignal.timeout(10000)
+      }
     );
     
-    if (!response.ok) return [];
-    
-    const data = await response.json();
-    const fixtures: ApiFixture[] = data.response || [];
-    const results: MatchResult[] = [];
-    
-    for (const fixture of fixtures) {
-      if (fixture.fixture.status.short === 'FT') {
-        const matchId = `api_${fixture.fixture.id}`;
+    if (response.ok) {
+      const data = await response.json();
+      const matches = data.matches || [];
+      
+      for (const match of matches) {
+        const matchId = `fd_${match.id}`;
         if (matchIds.includes(matchId)) {
-          const homeScore = fixture.goals?.home ?? 0;
-          const awayScore = fixture.goals?.away ?? 0;
+          const homeScore = match.score?.fullTime?.home ?? 0;
+          const awayScore = match.score?.fullTime?.away ?? 1;
           
           let winner: 'home' | 'away' | 'draw' = 'draw';
           if (homeScore > awayScore) winner = 'home';
@@ -413,10 +436,10 @@ export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]
           
           results.push({
             id: matchId,
-            homeTeam: fixture.teams.home.name,
-            awayTeam: fixture.teams.away.name,
-            league: fixture.league.name,
-            matchDate: fixture.fixture.date,
+            homeTeam: match.homeTeam.name,
+            awayTeam: match.awayTeam.name,
+            league: match.competition.name,
+            matchDate: match.utcDate,
             status: 'FT',
             homeScore,
             awayScore,
@@ -426,15 +449,13 @@ export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]
         }
       }
     }
-    
-    return results;
   } catch (error) {
     console.error('Error resultados:', error);
-    return [];
   }
+  
+  return results;
 }
-
-// ===== EVALUAR PICK =====
+// ===== Evaluar pick =====
 export function evaluatePickResult(pick: string, homeScore: number, awayScore: number): 'won' | 'lost' {
   const winner = homeScore > awayScore ? 'home' : homeScore < awayScore ? 'away' : 'draw';
   const totalGoals = homeScore + awayScore;
@@ -457,5 +478,4 @@ export function evaluatePickResult(pick: string, homeScore: number, awayScore: n
   
   return 'won';
 }
-
 export type { MatchForApp };
