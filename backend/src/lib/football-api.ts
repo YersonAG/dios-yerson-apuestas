@@ -49,49 +49,36 @@ const ESPN_API = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
 
 console.log('⚽ Fuentes: API-Football (futuros) + ESPN (hoy)');
 
-// ===== LIGAS PRINCIPALES (API-Football IDs) =====
+// ===== LIGAS QUE USAN LAS CASAS DE APUESTAS EN LATAM =====
+// Betplay, Wplay, Bet365, Rushbet, 1xBet, etc.
 const PRIORITY_LEAGUES = [
-  // LATAM
+  // ===== LATAM (las más apostadas) =====
   { id: 239, name: 'Liga BetPlay', country: 'Colombia', priority: 1 },
-  { id: 128, name: 'Liga Profesional', country: 'Argentina', priority: 1 },
+  { id: 128, name: 'Liga Argentina', country: 'Argentina', priority: 1 },
   { id: 71, name: 'Brasileirão', country: 'Brasil', priority: 1 },
   { id: 262, name: 'Liga MX', country: 'México', priority: 1 },
-  { id: 133, name: 'Primera División', country: 'Chile', priority: 1 },
-  { id: 242, name: 'Liga Pro', country: 'Ecuador', priority: 1 },
-  { id: 247, name: 'Liga 1', country: 'Perú', priority: 1 },
+  { id: 133, name: 'Primera Chile', country: 'Chile', priority: 1 },
+  { id: 242, name: 'Liga Pro Ecuador', country: 'Ecuador', priority: 1 },
+  { id: 247, name: 'Liga 1 Perú', country: 'Perú', priority: 1 },
   
-  // Brasil Estaduales
-  { id: 475, name: 'Paulista A1', country: 'Brasil', priority: 1 },
-  { id: 629, name: 'Mineiro', country: 'Brasil', priority: 1 },
-  { id: 600, name: 'Carioca', country: 'Brasil', priority: 1 },
-  { id: 611, name: 'Gaúcho', country: 'Brasil', priority: 1 },
-  
-  // Copas LATAM
+  // ===== Copas LATAM =====
   { id: 13, name: 'Copa Libertadores', country: 'Sudamérica', priority: 1 },
   { id: 11, name: 'Copa Sudamericana', country: 'Sudamérica', priority: 1 },
   
-  // Europa Top 5
+  // ===== Europa Top 5 (muy apostadas en LATAM) =====
   { id: 39, name: 'Premier League', country: 'Inglaterra', priority: 2 },
   { id: 140, name: 'La Liga', country: 'España', priority: 2 },
   { id: 135, name: 'Serie A', country: 'Italia', priority: 2 },
   { id: 78, name: 'Bundesliga', country: 'Alemania', priority: 2 },
   { id: 61, name: 'Ligue 1', country: 'Francia', priority: 2 },
   
-  // Otras Europa
-  { id: 88, name: 'Eredivisie', country: 'Holanda', priority: 3 },
-  { id: 94, name: 'Primeira Liga', country: 'Portugal', priority: 3 },
-  { id: 144, name: 'Jupiler Pro League', country: 'Bélgica', priority: 3 },
-  { id: 203, name: 'Süper Lig', country: 'Turquía', priority: 3 },
-  
-  // Copas Europa
+  // ===== Copas Europa =====
   { id: 2, name: 'Champions League', country: 'Europa', priority: 2 },
   { id: 3, name: 'Europa League', country: 'Europa', priority: 2 },
-  { id: 848, name: 'Conference League', country: 'Europa', priority: 3 },
   { id: 45, name: 'FA Cup', country: 'Inglaterra', priority: 2 },
   
-  // Otros
+  // ===== MLS (popular en LATAM) =====
   { id: 253, name: 'MLS', country: 'Estados Unidos', priority: 2 },
-  { id: 307, name: 'Saudi Pro League', country: 'Arabia Saudita', priority: 3 },
 ];
 
 // ===== FUNCIÓN PRINCIPAL =====
