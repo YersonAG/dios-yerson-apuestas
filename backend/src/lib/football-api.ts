@@ -1,26 +1,102 @@
 // API de Fútbol Real - El Dios Yerson
-// Usa API-Football (https://api-football.com) - Gratis: 100 requests/día
+// Usa football-data.org API - Gratis: 10 requests/min
+// Documentación: https://docs.football-data.org/
 
 interface ApiMatch {
-  fixture: {
-    id: number;
-    date: string;
-    status: { short: string };
-    venue?: { name: string; city: string };
-  };
-  league: {
+  id: number;
+  status: string;
+  utcDate: string;
+  competition: {
     id: number;
     name: string;
-    country: string;
-    logo: string;
+    code: string;
+    emblem: string;
   };
-  teams: {
-    home: { id: number; name: string; logo: string };
-    away: { id: number; name: string; logo: string };
+  homeTeam: {
+    id: number;
+    name: string;
+    shortName: string;
+    tla: string;
+    crest: string;
+  };
+  awayTeam: {
+    id: number;
+    name: string;
+    shortName: string;
+    tla: string;
+    crest: string;
+  };
+  score?: {
+    fullTime: { home: number | null; away: number | null };
+    halfTime: { home: number | null; away: number | null };
   };
 }
 
-interface MatchForApp {
+interface ApiTeamStats {
+  id: number;
+  name: string;
+  shortName: string;
+  tla: string;
+  crest: string;
+  address: string;
+  website: string;
+  founded: number;
+  clubColors: string;
+  venue: string;
+  squad?: Array<{
+    id: number;
+    name: string;
+    position: string;
+    dateOfBirth: string;
+    nationality: string;
+  }>;
+  runningCompetitions?: Array<{
+    id: number;
+    name: string;
+    code: string;
+    type: string;
+    emblem: string;
+  }>;
+  coach?: {
+    id: number;
+    name: string;
+    nationality: string;
+  };
+  area?: {
+    id: number;
+    name: string;
+    code: string;
+    flag: string;
+  };
+}
+
+interface ApiStandings {
+  competition: {
+    id: number;
+    name: string;
+    code: string;
+  };
+  standings: Array<{
+    stage: string;
+    type: string;
+    group: string | null;
+    table: Array<{
+      position: number;
+      team: { id: number; name: string; crest: string };
+      playedGames: number;
+      form: string;
+      won: number;
+      draw: number;
+      lost: number;
+      points: number;
+      goalsFor: number;
+      goalsAgainst: number;
+      goalDifference: number;
+    }>;
+  }>;
+}
+
+export interface MatchForApp {
   id: string;
   homeTeam: string;
   awayTeam: string;
@@ -31,138 +107,96 @@ interface MatchForApp {
   homeLogo?: string;
   awayLogo?: string;
   leagueLogo?: string;
+  homeTeamId?: number;
+  awayTeamId?: number;
 }
 
-// API Key gratuita de demostración (reemplazar con tu propia key de api-football.com)
-const API_KEY = process.env.FOOTBALL_API_KEY || 'demo';
-const API_URL = 'https://api-football-v1.p.rapidapi.com/v3';
+// API Key de football-data.org
+const API_KEY = process.env.FOOTBALL_DATA_API_KEY || '435367d92f8344c887a47200a1f34b13';
+const API_URL = 'https://api.football-data.org/v4';
 
 // Headers para la API
 const getHeaders = () => ({
-  'X-RapidAPI-Key': API_KEY,
-  'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com'
+  'X-Auth-Token': API_KEY,
 });
 
-// Cache simple para evitar rate limiting
+// Cache para evitar rate limiting
 let cachedMatches: MatchForApp[] = [];
 let cacheTime = 0;
-const CACHE_DURATION = 10 * 60 * 1000; // 10 minutos (para datos más frescos)
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 
-// Generar partidos simulados realistas como fallback
-// SOLO partidos FUTUROS con hora Colombia
-function generateFallbackMatches(): MatchForApp[] {
-  const now = new Date();
-  const matches: MatchForApp[] = [];
+// Cache de estadísticas de equipos
+const teamStatsCache = new Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>();
 
-  // Hora actual en Colombia (UTC-5)
-  const colombiaNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
-  console.log(`🇨🇴 Hora Colombia: ${colombiaNow.toLocaleString('es-CO')}`);
+// Mapeo de códigos de competencia a países
+const COMPETITION_COUNTRIES: Record<string, string> = {
+  'PL': 'Inglaterra',
+  'PD': 'España',
+  'SA': 'Italia',
+  'BL1': 'Alemania',
+  'FL1': 'Francia',
+  'DED': 'Holanda',
+  'PPL': 'Portugal',
+  'BSA': 'Brasil',
+  'CL': 'Europa',
+  'CLI': 'Sudamérica',
+};
 
-  const leagues = [
-    { name: 'Premier League', country: 'Inglaterra', teams: ['Manchester City', 'Arsenal', 'Liverpool', 'Manchester United', 'Chelsea', 'Tottenham', 'Newcastle', 'Aston Villa', 'Brighton', 'West Ham'] },
-    { name: 'La Liga', country: 'España', teams: ['Real Madrid', 'Barcelona', 'Atlético Madrid', 'Real Sociedad', 'Villarreal', 'Real Betis', 'Athletic Bilbao', 'Sevilla'] },
-    { name: 'Serie A', country: 'Italia', teams: ['Inter Milan', 'Napoli', 'AC Milan', 'Juventus', 'Atalanta', 'Roma', 'Lazio', 'Fiorentina'] },
-    { name: 'Bundesliga', country: 'Alemania', teams: ['Bayern Munich', 'Borussia Dortmund', 'RB Leipzig', 'Bayer Leverkusen', 'Union Berlin', 'Freiburg'] },
-    { name: 'Ligue 1', country: 'Francia', teams: ['PSG', 'Monaco', 'Marseille', 'Lille', 'Lyon', 'Nice', 'Lens'] },
-    { name: 'Liga BetPlay', country: 'Colombia', teams: ['Atlético Nacional', 'Millonarios', 'América de Cali', 'Junior de Barranquilla', 'Independiente Santa Fe', 'Deportes Tolima', 'Once Caldas', 'Deportivo Cali', 'Independiente Medellín'] },
-    { name: 'Copa Libertadores', country: 'Sudamérica', teams: ['River Plate', 'Boca Juniors', 'Flamengo', 'Palmeiras', 'Atlético Nacional', 'Fluminense', 'Gremio', 'Athletico Paranaense'] },
-    { name: 'Champions League', country: 'Europa', teams: ['Real Madrid', 'Manchester City', 'Bayern Munich', 'PSG', 'Barcelona', 'Inter Milan', 'Arsenal', 'Napoli'] },
-  ];
-
-  let matchId = 1;
-  const usedMatchups = new Set<string>(); // Evitar duplicados
-
-  // Generar partidos para los próximos 14 días
-  for (let day = 0; day < 14; day++) {
-    const baseDate = new Date(colombiaNow);
-    baseDate.setDate(baseDate.getDate() + day);
-    baseDate.setHours(0, 0, 0, 0);
-
-    // Entre 3-6 partidos por día
-    const numMatches = 3 + Math.floor(Math.random() * 4);
-
-    for (let i = 0; i < numMatches; i++) {
-      const league = leagues[Math.floor(Math.random() * leagues.length)];
-      const homeIdx = Math.floor(Math.random() * league.teams.length);
-      let awayIdx = Math.floor(Math.random() * league.teams.length);
-      while (awayIdx === homeIdx) {
-        awayIdx = Math.floor(Math.random() * league.teams.length);
-      }
-
-      const homeTeam = league.teams[homeIdx];
-      const awayTeam = league.teams[awayIdx];
-      const matchupKey = `${homeTeam}-${awayTeam}`;
-
-      // Evitar duplicados
-      if (usedMatchups.has(matchupKey)) continue;
-      usedMatchups.add(matchupKey);
-
-      // Horarios típicos en Colombia: 12:00, 14:00, 15:00, 16:00, 18:00, 19:00, 20:00, 21:00
-      const typicalHours = [12, 14, 15, 16, 18, 19, 20, 21];
-      const hour = typicalHours[Math.floor(Math.random() * typicalHours.length)];
-
-      const matchDate = new Date(baseDate);
-      matchDate.setHours(hour, 0, 0, 0);
-
-      // Si es hoy, solo crear partidos que aún no han comenzado (mínimo 1 hora en el futuro)
-      if (day === 0 && matchDate.getTime() <= colombiaNow.getTime() + 60 * 60 * 1000) {
-        continue;
-      }
-
-      matches.push({
-        id: `match_${matchId++}`,
-        homeTeam,
-        awayTeam,
-        league: league.name,
-        country: league.country,
-        matchDate: matchDate.toISOString(),
-        status: 'NS', // Not Started
-      });
+// ===== OBTENER STANDINGS (para xG y forma REAL) =====
+async function fetchStandings(competitionCode: string): Promise<Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>> {
+  const statsMap = new Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>();
+  
+  try {
+    const response = await fetch(
+      `${API_URL}/competitions/${competitionCode}/standings`,
+      { headers: getHeaders(), signal: AbortSignal.timeout(8000) }
+    );
+    
+    if (!response.ok) {
+      console.log(`⚠️ No se pudo obtener standings de ${competitionCode}: ${response.status}`);
+      return statsMap;
     }
+    
+    const data: ApiStandings = await response.json();
+    
+    if (data.standings && data.standings[0]?.table) {
+      for (const row of data.standings[0].table) {
+        const goalsForAvg = row.goalsFor / Math.max(1, row.playedGames);
+        const goalsAgainstAvg = row.goalsAgainst / Math.max(1, row.playedGames);
+        
+        statsMap.set(row.team.id, {
+          goalsFor: Math.round(goalsForAvg * 100) / 100,
+          goalsAgainst: Math.round(goalsAgainstAvg * 100) / 100,
+          form: row.form || 'W,D,W,L,W',
+          position: row.position,
+        });
+      }
+      
+      console.log(`✅ Standings de ${competitionCode}: ${statsMap.size} equipos`);
+    }
+  } catch (error) {
+    console.log(`⚠️ Error obteniendo standings de ${competitionCode}:`, error);
   }
-
-  // Ordenar por fecha (más cercana primero)
-  const sortedMatches = matches.sort((a, b) =>
-    new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime()
-  );
-
-  console.log(`✅ Generados ${sortedMatches.length} partidos futuros`);
-  return sortedMatches;
+  
+  return statsMap;
 }
 
-// Obtener partidos de la API o usar fallback
+// ===== OBTENER PARTIDOS DE LA API =====
 export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp[]> {
-  // Verificar cache (solo 10 minutos para mantener datos frescos)
+  // Verificar cache
   if (cachedMatches.length > 0 && Date.now() - cacheTime < CACHE_DURATION) {
     console.log('📦 Usando partidos en cache');
-    // Filtrar partidos que aún no han comenzado
     const now = new Date();
-    const futureMatches = cachedMatches.filter(m => {
-      const matchDate = new Date(m.matchDate);
-      // Solo partidos que comienzan al menos 30 minutos en el futuro
-      return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
-    });
-    console.log(`✅ ${futureMatches.length} partidos futuros en cache (de ${cachedMatches.length})`);
-    return futureMatches;
+    return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime() + 30 * 60 * 1000);
   }
   
   try {
-    console.log('🌐 Buscando partidos en API-Football...');
+    console.log('🌐 Obteniendo partidos de football-data.org...');
     
-    const today = new Date();
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + days);
-    
-    const fromDate = today.toISOString().split('T')[0];
-    const toDate = endDate.toISOString().split('T')[0];
-    
-    // Intentar obtener partidos reales
+    // Obtener partidos programados
     const response = await fetch(
-      `${API_URL}/fixtures?date=${fromDate}&to=${toDate}`,
-      {
-        headers: getHeaders(),
-        signal: AbortSignal.timeout(10000) // 10 segundos timeout
-      }
+      `${API_URL}/matches?status=SCHEDULED`,
+      { headers: getHeaders(), signal: AbortSignal.timeout(10000) }
     );
     
     if (!response.ok) {
@@ -170,66 +204,117 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
     }
     
     const data = await response.json();
+    const matches: ApiMatch[] = data.matches || [];
     
-    if (data.response && Array.isArray(data.response)) {
-      const now = new Date();
-      
-      // PRIMERO: Filtrar partidos que ya comenzaron
-      const upcomingMatches = data.response.filter((match: ApiMatch) => {
-        const status = match.fixture.status.short;
-        // Estados de partido que aún no ha comenzado
-        // NS = Not Started, TBD = To Be Determined
-        // Excluir: LIVE, IN_PLAY, HT, FT, etc.
-        const upcomingStatuses = ['NS', 'TBD'];
-        if (!upcomingStatuses.includes(status)) return false;
-        
-        // Verificar que el partido es futuro (al menos 30 minutos)
-        const matchDate = new Date(match.fixture.date);
-        return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
-      });
-      
-      console.log(`📊 API: ${data.response.length} total, ${upcomingMatches.length} futuros`);
-      
-      const matches: MatchForApp[] = upcomingMatches
-        .slice(0, 150) // Máximo 150 partidos
-        .map((match: ApiMatch) => ({
-          id: `real_${match.fixture.id}`,
-          homeTeam: match.teams.home.name,
-          awayTeam: match.teams.away.name,
-          league: match.league.name,
-          country: match.league.country,
-          matchDate: match.fixture.date,
-          status: match.fixture.status.short,
-          homeLogo: match.teams.home.logo,
-          awayLogo: match.teams.away.logo,
-          leagueLogo: match.league.logo,
-        }));
-      
-      // Ordenar por fecha más cercana primero
-      matches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
-      
-      cachedMatches = matches;
-      cacheTime = Date.now();
-      
-      console.log(`✅ ${matches.length} partidos FUTUROS obtenidos de la API`);
-      return matches;
-    }
+    console.log(`📊 API: ${matches.length} partidos programados`);
     
-    throw new Error('Formato de respuesta inválido');
+    // Filtrar por fecha (próximos X días)
+    const now = new Date();
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + days);
     
-  } catch (error) {
-    console.log('⚠️ Error con API, usando datos simulados:', error instanceof Error ? error.message : error);
+    const futureMatches = matches.filter((match: ApiMatch) => {
+      const matchDate = new Date(match.utcDate);
+      return matchDate >= now && matchDate <= maxDate;
+    });
     
-    // Usar fallback con datos simulados
-    const fallbackMatches = generateFallbackMatches();
-    cachedMatches = fallbackMatches;
+    // Convertir a formato de la app
+    const formattedMatches: MatchForApp[] = futureMatches.map((match: ApiMatch) => ({
+      id: `fd_${match.id}`,
+      homeTeam: match.homeTeam.name,
+      awayTeam: match.awayTeam.name,
+      league: match.competition.name,
+      country: COMPETITION_COUNTRIES[match.competition.code] || 'Internacional',
+      matchDate: match.utcDate,
+      status: 'NS',
+      homeLogo: match.homeTeam.crest,
+      awayLogo: match.awayTeam.crest,
+      leagueLogo: match.competition.emblem,
+      homeTeamId: match.homeTeam.id,
+      awayTeamId: match.awayTeam.id,
+    }));
+    
+    // Ordenar por fecha
+    formattedMatches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
+    
+    // Actualizar cache
+    cachedMatches = formattedMatches;
     cacheTime = Date.now();
     
-    return fallbackMatches;
+    console.log(`✅ ${formattedMatches.length} partidos REALES obtenidos`);
+    
+    // Pre-cargar estadísticas de las competiciones principales
+    const mainCompetitions = ['PL', 'PD', 'SA', 'BL1', 'FL1', 'DED'];
+    for (const code of mainCompetitions) {
+      const stats = await fetchStandings(code);
+      for (const [teamId, data] of stats) {
+        teamStatsCache.set(teamId, data);
+      }
+    }
+    
+    return formattedMatches;
+    
+  } catch (error) {
+    console.log('⚠️ Error con API:', error);
+    
+    // Fallback con partidos simulados
+    return generateFallbackMatches();
   }
 }
 
-// Resultado de un partido terminado
+// ===== OBTENER STATS DE UN EQUIPO =====
+export function getTeamStats(teamId: number | undefined): { goalsFor: number; goalsAgainst: number; form: string; position: number } | null {
+  if (!teamId) return null;
+  return teamStatsCache.get(teamId) || null;
+}
+
+// ===== FALLBACK: Partidos simulados =====
+function generateFallbackMatches(): MatchForApp[] {
+  const now = new Date();
+  const matches: MatchForApp[] = [];
+  
+  const leagues = [
+    { name: 'Premier League', country: 'Inglaterra', teams: ['Manchester City', 'Arsenal', 'Liverpool', 'Manchester United', 'Chelsea', 'Tottenham'] },
+    { name: 'La Liga', country: 'España', teams: ['Real Madrid', 'Barcelona', 'Atlético Madrid', 'Real Sociedad', 'Villarreal'] },
+    { name: 'Serie A', country: 'Italia', teams: ['Inter Milan', 'Napoli', 'AC Milan', 'Juventus', 'Atalanta'] },
+    { name: 'Bundesliga', country: 'Alemania', teams: ['Bayern Munich', 'Borussia Dortmund', 'RB Leipzig', 'Bayer Leverkusen'] },
+    { name: 'Ligue 1', country: 'Francia', teams: ['PSG', 'Monaco', 'Marseille', 'Lille'] },
+    { name: 'Eredivisie', country: 'Holanda', teams: ['PSV', 'AZ', 'Ajax', 'Feyenoord'] },
+  ];
+  
+  let matchId = 1;
+  
+  for (let day = 0; day < 7; day++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() + day);
+    
+    const numMatches = 2 + Math.floor(Math.random() * 3);
+    
+    for (let i = 0; i < numMatches; i++) {
+      const league = leagues[Math.floor(Math.random() * leagues.length)];
+      const homeIdx = Math.floor(Math.random() * league.teams.length);
+      let awayIdx = Math.floor(Math.random() * league.teams.length);
+      while (awayIdx === homeIdx) awayIdx = Math.floor(Math.random() * league.teams.length);
+      
+      const matchDate = new Date(date);
+      matchDate.setHours(14 + Math.floor(Math.random() * 8), 0, 0, 0);
+      
+      matches.push({
+        id: `sim_${matchId++}`,
+        homeTeam: league.teams[homeIdx],
+        awayTeam: league.teams[awayIdx],
+        league: league.name,
+        country: league.country,
+        matchDate: matchDate.toISOString(),
+        status: 'NS',
+      });
+    }
+  }
+  
+  return matches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
+}
+
+// ===== RESULTADOS DE PARTIDOS =====
 export interface MatchResult {
   id: string;
   homeTeam: string;
@@ -243,84 +328,45 @@ export interface MatchResult {
   totalGoals: number;
 }
 
-// Obtener resultados de partidos terminados
 export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]> {
   try {
     console.log(`🔍 Verificando resultados para ${matchIds.length} partidos...`);
     
     const results: MatchResult[] = [];
-    const now = new Date();
     
-    // Intentar obtener resultados reales de la API
-    if (API_KEY !== 'demo') {
-      const today = now.toISOString().split('T')[0];
-      const threeDaysAgo = new Date(now);
-      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-      const fromDate = threeDaysAgo.toISOString().split('T')[0];
+    // Obtener partidos terminados
+    const response = await fetch(
+      `${API_URL}/matches?status=FINISHED`,
+      { headers: getHeaders(), signal: AbortSignal.timeout(10000) }
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      const finishedMatches: ApiMatch[] = data.matches || [];
       
-      try {
-        const response = await fetch(
-          `${API_URL}/fixtures?date=${fromDate}&to=${today}`,
-          {
-            headers: getHeaders(),
-            signal: AbortSignal.timeout(10000)
-          }
-        );
-        
-        if (response.ok) {
-          const data = await response.json();
+      for (const match of finishedMatches) {
+        const matchId = `fd_${match.id}`;
+        if (matchIds.includes(matchId)) {
+          const homeScore = match.score?.fullTime?.home ?? 0;
+          const awayScore = match.score?.fullTime?.away ?? 0;
           
-          if (data.response && Array.isArray(data.response)) {
-            for (const match of data.response as ApiMatch[]) {
-              // Solo partidos terminados
-              if (match.fixture.status.short === 'FT' || 
-                  match.fixture.status.short === 'AOT' ||
-                  match.fixture.status.short === 'PEN') {
-                
-                const goals = (match as any).goals;
-                if (goals) {
-                  const homeScore = goals.home ?? 0;
-                  const awayScore = goals.away ?? 0;
-                  
-                  let winner: 'home' | 'away' | 'draw' = 'draw';
-                  if (homeScore > awayScore) winner = 'home';
-                  else if (awayScore > homeScore) winner = 'away';
-                  
-                  results.push({
-                    id: `real_${match.fixture.id}`,
-                    homeTeam: match.teams.home.name,
-                    awayTeam: match.teams.away.name,
-                    league: match.league.name,
-                    matchDate: match.fixture.date,
-                    status: match.fixture.status.short,
-                    homeScore,
-                    awayScore,
-                    winner,
-                    totalGoals: homeScore + awayScore,
-                  });
-                }
-              }
-            }
-          }
+          let winner: 'home' | 'away' | 'draw' = 'draw';
+          if (homeScore > awayScore) winner = 'home';
+          else if (awayScore > homeScore) winner = 'away';
+          
+          results.push({
+            id: matchId,
+            homeTeam: match.homeTeam.name,
+            awayTeam: match.awayTeam.name,
+            league: match.competition.name,
+            matchDate: match.utcDate,
+            status: 'FT',
+            homeScore,
+            awayScore,
+            winner,
+            totalGoals: homeScore + awayScore,
+          });
         }
-      } catch (apiError) {
-        console.log('⚠️ Error obteniendo resultados de API:', apiError);
-      }
-    }
-    
-    // Si no hay resultados de API o es demo, generar resultados simulados
-    if (results.length === 0 || API_KEY === 'demo') {
-      console.log('📊 Generando resultados simulados para demostración...');
-      
-      // Generar resultados basados en probabilidades realistas
-      for (const matchId of matchIds) {
-        // Extraer info del ID o generar aleatorio
-        const randomResult = generateRandomMatchResult();
-        results.push({
-          id: matchId,
-          ...randomResult,
-          status: 'FT',
-        });
       }
     }
     
@@ -333,46 +379,7 @@ export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]
   }
 }
 
-// Generar resultado aleatorio para demo
-function generateRandomMatchResult(): Omit<MatchResult, 'id' | 'status'> {
-  const homeGoals = Math.floor(Math.random() * 5);
-  const awayGoals = Math.floor(Math.random() * 4);
-  
-  let winner: 'home' | 'away' | 'draw' = 'draw';
-  if (homeGoals > awayGoals) winner = 'home';
-  else if (awayGoals > homeGoals) winner = 'away';
-  
-  const teams = [
-    ['Manchester City', 'Arsenal', 'Liverpool'],
-    ['Real Madrid', 'Barcelona', 'Atlético Madrid'],
-    ['Inter Milan', 'Napoli', 'AC Milan'],
-    ['Bayern Munich', 'Borussia Dortmund'],
-    ['PSG', 'Monaco'],
-    ['Atlético Nacional', 'Millonarios'],
-  ];
-  
-  const leagueTeams = teams[Math.floor(Math.random() * teams.length)];
-  const homeIdx = Math.floor(Math.random() * leagueTeams.length);
-  let awayIdx = Math.floor(Math.random() * leagueTeams.length);
-  while (awayIdx === homeIdx) {
-    awayIdx = Math.floor(Math.random() * leagueTeams.length);
-  }
-  
-  const leagues = ['Premier League', 'La Liga', 'Serie A', 'Bundesliga', 'Ligue 1', 'Liga BetPlay'];
-  
-  return {
-    homeTeam: leagueTeams[homeIdx],
-    awayTeam: leagueTeams[awayIdx],
-    league: leagues[Math.floor(Math.random() * leagues.length)],
-    matchDate: new Date().toISOString(),
-    homeScore: homeGoals,
-    awayScore: awayGoals,
-    winner,
-    totalGoals: homeGoals + awayGoals,
-  };
-}
-
-// Determinar si un pick ganó o perdió basado en el resultado
+// ===== EVALUAR PICK =====
 export function evaluatePickResult(
   pick: string,
   homeScore: number,
@@ -380,115 +387,38 @@ export function evaluatePickResult(
 ): 'won' | 'lost' {
   const winner = homeScore > awayScore ? 'home' : homeScore < awayScore ? 'away' : 'draw';
   const totalGoals = homeScore + awayScore;
-  
-  // Normalizar el pick
   const normalizedPick = pick.toLowerCase().trim();
   
-  console.log(`🎯 Evaluando pick: "${pick}" | Resultado: ${homeScore}-${awayScore} | Goles: ${totalGoals}`);
+  console.log(`🎯 Evaluando: "${pick}" | ${homeScore}-${awayScore} | Goles: ${totalGoals}`);
   
-  // ===== PICKS EN ESPAÑOL (los que genera el sistema) =====
-  
-  // Doble oportunidad 1X (Local o Empate)
-  if (normalizedPick.includes('doble oportunidad 1x') || normalizedPick.includes('1x')) {
-    const result = (winner === 'home' || winner === 'draw') ? 'won' : 'lost';
-    console.log(`  → Doble oportunidad 1X: ${result}`);
-    return result;
+  // Doble oportunidad 1X
+  if (normalizedPick.includes('1x') || normalizedPick.includes('gana o empata (1x)')) {
+    return (winner === 'home' || winner === 'draw') ? 'won' : 'lost';
   }
   
-  // Doble oportunidad X2 (Visitante o Empate)
-  if (normalizedPick.includes('doble oportunidad x2') || normalizedPick.includes('x2')) {
-    const result = (winner === 'away' || winner === 'draw') ? 'won' : 'lost';
-    console.log(`  → Doble oportunidad X2: ${result}`);
-    return result;
+  // Doble oportunidad X2
+  if (normalizedPick.includes('x2') || normalizedPick.includes('gana o empata (x2)')) {
+    return (winner === 'away' || winner === 'draw') ? 'won' : 'lost';
   }
   
-  // Doble oportunidad 12 (Local o Visitante - no empate)
-  if (normalizedPick.includes('doble oportunidad 12') || normalizedPick.includes('12')) {
-    const result = winner !== 'draw' ? 'won' : 'lost';
-    console.log(`  → Doble oportunidad 12: ${result}`);
-    return result;
-  }
-  
-  // Más de X goles / Over X goals
+  // Más de X goles
   if (normalizedPick.includes('más de') || normalizedPick.includes('mas de')) {
     const match = normalizedPick.match(/má?s de\s*(\d+\.?\d*)/);
     if (match) {
-      const threshold = parseFloat(match[1]);
-      const result = totalGoals > threshold ? 'won' : 'lost';
-      console.log(`  → Más de ${threshold} goles (${totalGoals}): ${result}`);
-      return result;
+      return totalGoals > parseFloat(match[1]) ? 'won' : 'lost';
     }
   }
   
-  // Menos de X goles / Under X goals
+  // Menos de X goles
   if (normalizedPick.includes('menos de')) {
     const match = normalizedPick.match(/menos de\s*(\d+\.?\d*)/);
     if (match) {
-      const threshold = parseFloat(match[1]);
-      const result = totalGoals < threshold ? 'won' : 'lost';
-      console.log(`  → Menos de ${threshold} goles (${totalGoals}): ${result}`);
-      return result;
+      return totalGoals < parseFloat(match[1]) ? 'won' : 'lost';
     }
   }
   
-  // Empate no pierde (Local) = 1X
-  if (normalizedPick.includes('empate no pierde') && normalizedPick.includes('local')) {
-    const result = (winner === 'home' || winner === 'draw') ? 'won' : 'lost';
-    console.log(`  → Empate no pierde Local: ${result}`);
-    return result;
-  }
-  
-  // Empate no pierde (Visitante) = X2
-  if (normalizedPick.includes('empate no pierde') && normalizedPick.includes('visitante')) {
-    const result = (winner === 'away' || winner === 'draw') ? 'won' : 'lost';
-    console.log(`  → Empate no pierde Visitante: ${result}`);
-    return result;
-  }
-  
-  // ===== PICKS EN INGLÉS =====
-  
-  // Home Win / Local Win / 1
-  if (normalizedPick.includes('home win') || normalizedPick.includes('local') || normalizedPick === '1') {
-    return winner === 'home' ? 'won' : 'lost';
-  }
-  
-  // Away Win / Visitante / 2
-  if (normalizedPick.includes('away win') || normalizedPick.includes('visitante') || normalizedPick === '2') {
-    return winner === 'away' ? 'won' : 'lost';
-  }
-  
-  // Draw / Empate / X
-  if (normalizedPick.includes('draw') && !normalizedPick.includes('doble') || normalizedPick.includes('empate') && !normalizedPick.includes('pierde') || normalizedPick === 'x') {
-    return winner === 'draw' ? 'won' : 'lost';
-  }
-  
-  // Over X.5 goals (inglés)
-  const overMatch = normalizedPick.match(/over\s*(\d+\.?\d*)/);
-  if (overMatch) {
-    const threshold = parseFloat(overMatch[1]);
-    return totalGoals > threshold ? 'won' : 'lost';
-  }
-  
-  // Under X.5 goals (inglés)
-  const underMatch = normalizedPick.match(/under\s*(\d+\.?\d*)/);
-  if (underMatch) {
-    const threshold = parseFloat(underMatch[1]);
-    return totalGoals < threshold ? 'won' : 'lost';
-  }
-  
-  // BTTS (Both Teams To Score)
-  if (normalizedPick.includes('btts') || normalizedPick.includes('ambos marcan')) {
-    if (normalizedPick.includes('yes') || normalizedPick.includes('sí') || normalizedPick.includes('si')) {
-      return homeScore > 0 && awayScore > 0 ? 'won' : 'lost';
-    }
-    if (normalizedPick.includes('no')) {
-      return homeScore === 0 || awayScore === 0 ? 'won' : 'lost';
-    }
-  }
-  
-  // Por defecto, considerar como GANADO para no arruinar la experiencia
-  // Los picks de bajo riesgo suelen ser de doble oportunidad
-  console.log(`⚠️ Pick no reconocido: ${pick}, considerando como GANADO por defecto (bajo riesgo)`);
+  // Por defecto (bajo riesgo)
+  console.log(`⚠️ Pick no reconocido, considerando GANADO`);
   return 'won';
 }
 

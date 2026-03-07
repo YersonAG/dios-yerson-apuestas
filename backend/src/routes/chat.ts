@@ -122,7 +122,15 @@ router.post('/', async (req: Request, res: Response) => {
     if (selectedMatchesData && Array.isArray(selectedMatchesData) && selectedMatchesData.length > 0) {
       console.log(`🎯 Generando combinada con ${selectedMatchesData.length} partidos SELECCIONADOS`);
       
-      const matchesToUse = selectedMatchesData.slice(0, 20);
+      const matchesToUse = selectedMatchesData.slice(0, 20).map((m: any) => ({
+        id: m.id,
+        homeTeam: m.homeTeam,
+        awayTeam: m.awayTeam,
+        league: m.league,
+        matchDate: m.matchDate,
+        homeTeamId: m.homeTeamId,
+        awayTeamId: m.awayTeamId,
+      }));
       
       // Usar el motor v4.7 PRO
       const combinada = generateCombinadaFromMatches(matchesToUse);
