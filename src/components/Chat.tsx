@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, CheckCircle2, Calendar, MapPin, Clock } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, CheckCircle2, Calendar, MapPin, Clock, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -88,6 +88,18 @@ const getDayLabel = (dateStr: string): string => {
   }
 };
 
+// Verificar si partido ya comenzó
+const hasMatchStarted = (dateStr: string): boolean => {
+  try {
+    const matchDate = new Date(dateStr);
+    const now = new Date();
+    // Si el partido comienza en menos de 30 minutos, se considera que ya comenzó
+    return matchDate.getTime() <= now.getTime() + 30 * 60 * 1000;
+  } catch {
+    return false;
+  }
+};
+
 export function Chat({ onCombinadasGenerated, onTakeBet, user }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -99,6 +111,11 @@ export function Chat({ onCombinadasGenerated, onTakeBet, user }: ChatProps) {
 
 Escribe **"ver partidos"** para ver los próximos partidos.
 
+O usa los botones rápidos:
+• **Automático** - 5 picks
+• **Soñadora 12** - 12 picks  
+• **Soñadora 20** - 20 picks
+
 ⏰ Horarios en hora Colombia (UTC-5)
 
 *Agradece al Dios Yerson.* 🙏`,
@@ -109,6 +126,8 @@ Escribe **"ver partidos"** para ver los próximos partidos.
   const [isLoading, setIsLoading] = useState(false);
   const [takingBet, setTakingBet] = useState(false);
   const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set());
+  // Guardar referencia a los partidos actuales para selección
+  const [currentMatches, setCurrentMatches] = useState<Match[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -119,7 +138,7 @@ Escribe **"ver partidos"** para ver los próximos partidos.
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const sendMessage = async (messageText?: string) => {
+  const sendMessage = async (messageText?: string, selectedMatches?: Match[]) => {
     const textToSend = messageText || input;
     if (!textToSend.trim() || isLoading) return;
 
@@ -144,15 +163,18 @@ Escribe **"ver partidos"** para ver los próximos partidos.
 
       let body: any = { message: textToSend };
       
-      if (selectedMatchIds.size > 0) {
-        const lastMessageWithMatches = [...messages].reverse().find(m => m.matches && m.matches.length > 0);
-        if (lastMessageWithMatches?.matches) {
-          const selectedMatches = lastMessageWithMatches.matches.filter(m => selectedMatchIds.has(m.id));
-          if (selectedMatches.length > 0) {
-            body.selectedMatches = selectedMatches;
-          }
+      // Si hay partidos seleccionados, enviarlos EXACTAMENTE
+      if (selectedMatches && selectedMatches.length > 0) {
+        body.selectedMatches = selectedMatches;
+      } else if (selectedMatchIds.size > 0 && currentMatches.length > 0) {
+        // Usar los partidos guardados en currentMatches
+        const matchesToSend = currentMatches.filter(m => selectedMatchIds.has(m.id));
+        if (matchesToSend.length > 0) {
+          body.selectedMatches = matchesToSend;
         }
       }
+
+      console.log('📤 Enviando:', { message: textToSend, selectedCount: body.selectedMatches?.length || 0 });
 
       const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
@@ -176,6 +198,13 @@ Escribe **"ver partidos"** para ver los próximos partidos.
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+      
+      // Guardar los partidos actuales para selección
+      if (data.availableMatches && data.availableMatches.length > 0) {
+        // Filtrar partidos que ya comenzaron
+        const futureMatches = data.availableMatches.filter((m: Match) => !hasMatchStarted(m.matchDate));
+        setCurrentMatches(futureMatches);
+      }
       
       if (data.combinadas) {
         setSelectedMatchIds(new Set());
@@ -216,7 +245,14 @@ Escribe **"ver partidos"** para ver los próximos partidos.
 
   const handleConfirmSelection = () => {
     if (selectedMatchIds.size === 0) return;
-    sendMessage('generar combinada con seleccionados');
+    
+    // Obtener los partidos seleccionados EXACTAMENTE de currentMatches
+    const selectedMatches = currentMatches.filter(m => selectedMatchIds.has(m.id));
+    console.log(`🎯 Confirmando ${selectedMatches.length} partidos seleccionados`);
+    
+    if (selectedMatches.length > 0) {
+      sendMessage('generar combinada con seleccionados', selectedMatches);
+    }
   };
 
   const handleTakeBet = async (combinada: Combinada) => {
@@ -297,7 +333,7 @@ Escribe **"ver partidos"** para ver los próximos partidos.
         </div>
         <div className="min-w-0">
           <h3 className="font-bold text-green-400 text-sm md:text-base">El Dios Yerson</h3>
-          <p className="text-[10px] md:text-xs text-gray-400">Solo apuestas de bajo riesgo 🟢</p>
+          <p className="text-[10px] md:text-xs text-gray-400">Motor v4.7 PRO • Bajo riesgo 🟢</p>
         </div>
       </div>
 
@@ -349,19 +385,28 @@ Escribe **"ver partidos"** para ver los próximos partidos.
                       <p className="text-[10px] md:text-sm text-green-400 font-medium">
                         📋 {message.matches.length} partidos:
                       </p>
-                      {selectedMatchIds.size > 0 && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={clearSelection}
-                          className="text-gray-400 hover:text-white h-6 text-[10px] px-2"
-                        >
-                          Limpiar
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {selectedMatchIds.size > 0 && (
+                          <>
+                            <span className="text-[10px] text-yellow-400">
+                              {selectedMatchIds.size}/20
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={clearSelection}
+                              className="text-gray-400 hover:text-white h-6 text-[10px] px-2"
+                            >
+                              Limpiar
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-1 md:space-y-1.5 max-h-40 md:max-h-52 overflow-y-auto pr-1">
-                      {message.matches.map((match) => {
+                      {message.matches
+                        .filter(match => !hasMatchStarted(match.matchDate))
+                        .map((match) => {
                         const isSelected = selectedMatchIds.has(match.id);
                         const dayLabel = getDayLabel(match.matchDate);
                         
@@ -472,6 +517,18 @@ Escribe **"ver partidos"** para ver los próximos partidos.
             className="px-2.5 md:px-3 py-1 text-[10px] md:text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-full whitespace-nowrap transition-colors border border-gray-700"
           >
             🤖 Automático
+          </button>
+          <button
+            onClick={() => sendMessage('soñadora 12')}
+            className="px-2.5 md:px-3 py-1 text-[10px] md:text-xs bg-purple-900/50 hover:bg-purple-800/50 text-purple-300 rounded-full whitespace-nowrap transition-colors border border-purple-700/50"
+          >
+            🌙 Soñadora 12
+          </button>
+          <button
+            onClick={() => sendMessage('soñadora 20')}
+            className="px-2.5 md:px-3 py-1 text-[10px] md:text-xs bg-purple-900/50 hover:bg-purple-800/50 text-purple-300 rounded-full whitespace-nowrap transition-colors border border-purple-700/50"
+          >
+            🌙 Soñadora 20
           </button>
           <button
             onClick={() => sendMessage('ayuda')}

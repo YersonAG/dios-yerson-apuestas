@@ -142,7 +142,8 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
       // Solo partidos que comienzan al menos 30 minutos en el futuro
       return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
     });
-    return futureMatches.slice(0, days * 5);
+    console.log(`✅ ${futureMatches.length} partidos futuros en cache (de ${cachedMatches.length})`);
+    return futureMatches;
   }
   
   try {
@@ -172,19 +173,25 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
     
     if (data.response && Array.isArray(data.response)) {
       const now = new Date();
-      const matches: MatchForApp[] = data.response
-        // Solo partidos que NO han comenzado (NS = Not Started, TBD = To Be Determined)
-        .filter((match: ApiMatch) => {
-          const status = match.fixture.status.short;
-          // Estados de partido que aún no ha comenzado
-          const upcomingStatuses = ['NS', 'TBD', 'PST', 'CAN', 'SUSP'];
-          if (!upcomingStatuses.includes(status)) return false;
-          
-          // Verificar que el partido es futuro
-          const matchDate = new Date(match.fixture.date);
-          return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
-        })
-        .slice(0, 100) // Máximo 100 partidos
+      
+      // PRIMERO: Filtrar partidos que ya comenzaron
+      const upcomingMatches = data.response.filter((match: ApiMatch) => {
+        const status = match.fixture.status.short;
+        // Estados de partido que aún no ha comenzado
+        // NS = Not Started, TBD = To Be Determined
+        // Excluir: LIVE, IN_PLAY, HT, FT, etc.
+        const upcomingStatuses = ['NS', 'TBD'];
+        if (!upcomingStatuses.includes(status)) return false;
+        
+        // Verificar que el partido es futuro (al menos 30 minutos)
+        const matchDate = new Date(match.fixture.date);
+        return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
+      });
+      
+      console.log(`📊 API: ${data.response.length} total, ${upcomingMatches.length} futuros`);
+      
+      const matches: MatchForApp[] = upcomingMatches
+        .slice(0, 150) // Máximo 150 partidos
         .map((match: ApiMatch) => ({
           id: `real_${match.fixture.id}`,
           homeTeam: match.teams.home.name,
