@@ -1,6 +1,8 @@
 // API de Fútbol - El Dios Yerson
-// 🚀 SIN APIs de pago
-// Fuentes: API-Football (partidos futuros) + ESPN (partidos del día)
+// 🌐 SCRAPER con Cheerio - Flashscore Móvil (HTML estático)
+// GRATIS, SIN APIs, SIN LÍMITES
+
+import * as cheerio from 'cheerio';
 
 // ===== INTERFACES =====
 export interface MatchForApp {
@@ -39,212 +41,172 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 // Cache de estadísticas
 const teamStatsCache = new Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>();
 
-// ===== APIs =====
-// API-Football (api-sports.io) - Partidos futuros por fecha
-const AS_API_KEY = process.env.FOOTBALL_API_KEY || '1b61538134ffc3ee9b7f637ceebe7524';
-const AS_API_URL = 'https://v3.football.api-sports.io';
+console.log('⚽ Scraper: Flashscore Móvil (Cheerio)');
 
-// ESPN - Partidos del día actual
-const ESPN_API = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
-
-console.log('⚽ Fuentes: API-Football (futuros) + ESPN (hoy)');
-
-// ===== LIGAS QUE USAN LAS CASAS DE APUESTAS EN LATAM =====
-// Betplay, Wplay, Bet365, Rushbet, 1xBet, etc.
-const PRIORITY_LEAGUES = [
-  // ===== LATAM (las más apostadas) =====
-  { id: 239, name: 'Liga BetPlay', country: 'Colombia', priority: 1 },
-  { id: 128, name: 'Liga Argentina', country: 'Argentina', priority: 1 },
-  { id: 71, name: 'Brasileirão', country: 'Brasil', priority: 1 },
-  { id: 262, name: 'Liga MX', country: 'México', priority: 1 },
-  { id: 133, name: 'Primera Chile', country: 'Chile', priority: 1 },
-  { id: 242, name: 'Liga Pro Ecuador', country: 'Ecuador', priority: 1 },
-  { id: 247, name: 'Liga 1 Perú', country: 'Perú', priority: 1 },
+// ===== LIGAS QUE USAN CASAS DE APUESTAS LATAM =====
+const ALLOWED_LEAGUES: { patterns: string[]; name: string; country: string }[] = [
+  // LATAM
+  { patterns: ['COLOMBIA', 'Categoria', 'Dimayor'], name: 'Liga BetPlay', country: 'Colombia' },
+  { patterns: ['ARGENTINA'], name: 'Liga Argentina', country: 'Argentina' },
+  { patterns: ['BRASIL', 'Brasileirao', 'Paulista', 'Mineiro', 'Carioca', 'Gaucho'], name: 'Brasileirão', country: 'Brasil' },
+  { patterns: ['MEXICO', 'Liga MX'], name: 'Liga MX', country: 'México' },
+  { patterns: ['CHILE'], name: 'Primera Chile', country: 'Chile' },
+  { patterns: ['ECUADOR', 'Liga Pro'], name: 'Liga Pro Ecuador', country: 'Ecuador' },
+  { patterns: ['PERU', 'Liga 1'], name: 'Liga 1 Perú', country: 'Perú' },
+  { patterns: ['URUGUAY'], name: 'Primera Uruguay', country: 'Uruguay' },
+  { patterns: ['PARAGUAY'], name: 'Primera Paraguay', country: 'Paraguay' },
+  { patterns: ['VENEZUELA', 'FUTVE'], name: 'Primera Venezuela', country: 'Venezuela' },
+  { patterns: ['BOLIVIA'], name: 'Liga Bolivia', country: 'Bolivia' },
   
-  // ===== Copas LATAM =====
-  { id: 13, name: 'Copa Libertadores', country: 'Sudamérica', priority: 1 },
-  { id: 11, name: 'Copa Sudamericana', country: 'Sudamérica', priority: 1 },
+  // Copas LATAM
+  { patterns: ['Libertadores'], name: 'Copa Libertadores', country: 'Sudamérica' },
+  { patterns: ['Sudamericana'], name: 'Copa Sudamericana', country: 'Sudamérica' },
   
-  // ===== Europa Top 5 (muy apostadas en LATAM) =====
-  { id: 39, name: 'Premier League', country: 'Inglaterra', priority: 2 },
-  { id: 140, name: 'La Liga', country: 'España', priority: 2 },
-  { id: 135, name: 'Serie A', country: 'Italia', priority: 2 },
-  { id: 78, name: 'Bundesliga', country: 'Alemania', priority: 2 },
-  { id: 61, name: 'Ligue 1', country: 'Francia', priority: 2 },
+  // Europa Top 5
+  { patterns: ['INGLATERRA', 'Premier League'], name: 'Premier League', country: 'Inglaterra' },
+  { patterns: ['ESPAÑA', 'LaLiga', 'La Liga'], name: 'La Liga', country: 'España' },
+  { patterns: ['ITALIA', 'Serie A'], name: 'Serie A', country: 'Italia' },
+  { patterns: ['ALEMANIA', 'Bundesliga'], name: 'Bundesliga', country: 'Alemania' },
+  { patterns: ['FRANCIA', 'Ligue 1'], name: 'Ligue 1', country: 'Francia' },
   
-  // ===== Copas Europa =====
-  { id: 2, name: 'Champions League', country: 'Europa', priority: 2 },
-  { id: 3, name: 'Europa League', country: 'Europa', priority: 2 },
-  { id: 45, name: 'FA Cup', country: 'Inglaterra', priority: 2 },
+  // Copas Europa
+  { patterns: ['Champions League', 'Champions'], name: 'Champions League', country: 'Europa' },
+  { patterns: ['Europa League'], name: 'Europa League', country: 'Europa' },
+  { patterns: ['FA Cup'], name: 'FA Cup', country: 'Inglaterra' },
   
-  // ===== MLS (popular en LATAM) =====
-  { id: 253, name: 'MLS', country: 'Estados Unidos', priority: 2 },
+  // Otros populares
+  { patterns: ['ESTADOS UNIDOS', 'MLS'], name: 'MLS', country: 'Estados Unidos' },
+  { patterns: ['PAISES BAJOS', 'Eredivisie', 'HOLANDA'], name: 'Eredivisie', country: 'Holanda' },
+  { patterns: ['PORTUGAL', 'Liga Portugal'], name: 'Primeira Liga', country: 'Portugal' },
+  { patterns: ['TURQUIA', 'Super Lig'], name: 'Süper Lig', country: 'Turquía' },
+  { patterns: ['BÉLGICA', 'Jupiler'], name: 'Jupiler Pro League', country: 'Bélgica' },
 ];
 
+// ===== FUNCIÓN PARA MATCHear LIGA =====
+function matchLeague(leagueText: string): { name: string; country: string } | null {
+  const upper = leagueText.toUpperCase();
+  
+  for (const league of ALLOWED_LEAGUES) {
+    for (const pattern of league.patterns) {
+      if (upper.includes(pattern.toUpperCase())) {
+        return { name: league.name, country: league.country };
+      }
+    }
+  }
+  
+  return null;
+}
+
 // ===== FUNCIÓN PRINCIPAL =====
-export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp[]> {
+export async function getUpcomingMatches(days: number = 7): Promise<MatchForApp[]> {
   // Verificar cache
   if (cachedMatches.length > 0 && Date.now() - cacheTime < CACHE_DURATION) {
     console.log('📦 Usando cache:', cachedMatches.length, 'partidos');
     const now = new Date();
-    return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime() + 30 * 60 * 1000);
+    return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime());
   }
   
-  console.log('🌐 Obteniendo partidos de múltiples fuentes...');
+  console.log('🌐 Obteniendo partidos de Flashscore Móvil...');
   const startTime = Date.now();
   
   const allMatches: MatchForApp[] = [];
   const seenIds = new Set<string>();
   
-  try {
-    // ===== 1. API-Football: Obtener partidos de los próximos días =====
-    console.log('\n📊 API-Football: Buscando partidos futuros...');
-    
-    // Crear peticiones para cada día
-    const dateRequests: Promise<{ date: string; data: any }>[] = [];
-    
-    for (let i = 0; i < days; i++) {
-      const targetDate = new Date();
-      targetDate.setDate(targetDate.getDate() + i);
-      const dateStr = targetDate.toISOString().split('T')[0];
+  // Headers para simular móvil
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache',
+  };
+  
+  // Obtener partidos de cada día
+  for (let dayOffset = 0; dayOffset < days; dayOffset++) {
+    try {
+      const url = `https://m.flashscore.es/?d=${dayOffset}`;
       
-      dateRequests.push(
-        fetch(`${AS_API_URL}/fixtures?date=${dateStr}`, {
-          headers: { 'x-apisports-key': AS_API_KEY },
-          signal: AbortSignal.timeout(15000)
-        })
-        .then(r => r.json())
-        .then(data => ({ date: dateStr, data }))
-        .catch(() => ({ date: dateStr, data: { response: [] } }))
-      );
-    }
-    
-    // Ejecutar todas las peticiones en paralelo
-    const responses = await Promise.all(dateRequests);
-    
-    // Procesar respuestas
-    const leagueSet = new Set(PRIORITY_LEAGUES.map(l => l.id));
-    
-    for (const { date, data } of responses) {
-      const fixtures = data.response || [];
+      const response = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+      const html = await response.text();
       
-      for (const fixture of fixtures) {
-        // Solo ligas prioritarias
-        if (!leagueSet.has(fixture.league?.id)) continue;
-        
-        const matchId = `af_${fixture.fixture?.id}`;
-        if (seenIds.has(matchId)) continue;
-        seenIds.add(matchId);
-        
-        // Solo partidos no terminados
-        const status = fixture.fixture?.status?.short;
-        if (['FT', 'AET', 'PEN', 'CANC', 'PST', 'SUSP'].includes(status)) continue;
-        
-        const leagueInfo = PRIORITY_LEAGUES.find(l => l.id === fixture.league?.id);
-        
-        allMatches.push({
-          id: matchId,
-          homeTeam: fixture.teams?.home?.name || 'TBD',
-          awayTeam: fixture.teams?.away?.name || 'TBD',
-          league: leagueInfo?.name || fixture.league?.name || 'Liga',
-          country: leagueInfo?.country || fixture.league?.country || 'Internacional',
-          matchDate: fixture.fixture?.date,
-          status: status === 'NS' ? 'Scheduled' : status === 'LIVE' || status === '1H' || status === '2H' ? 'LIVE' : status,
-          homeLogo: fixture.teams?.home?.logo,
-          awayLogo: fixture.teams?.away?.logo,
-          leagueLogo: fixture.league?.logo,
-          homeTeamId: fixture.teams?.home?.id,
-          awayTeamId: fixture.teams?.away?.id,
-        });
-      }
+      const $ = cheerio.load(html);
       
-      if (fixtures.length > 0) {
-        const count = fixtures.filter((f: any) => leagueSet.has(f.league?.id) && !['FT', 'AET', 'PEN', 'CANC', 'PST', 'SUSP'].includes(f.fixture?.status?.short)).length;
-        if (count > 0) {
-          console.log(`  ✅ ${date}: ${count} partidos`);
+      // Fecha base para este día
+      const baseDate = new Date();
+      baseDate.setDate(baseDate.getDate() + dayOffset);
+      const dateStr = baseDate.toISOString().split('T')[0];
+      
+      // Obtener el contenido del main
+      const mainContent = $('#main').html() || '';
+      
+      // Separar por <h4> para identificar ligas
+      const parts = mainContent.split(/<h4[^>]*>/i);
+      
+      let currentLeague: { name: string; country: string } | null = null;
+      
+      for (const part of parts) {
+        // Verificar si esta parte comienza con un nombre de liga
+        const h4End = part.indexOf('</h4>');
+        
+        if (h4End > 0) {
+          // Es un título de liga
+          const leagueHtml = part.substring(0, h4End);
+          const leagueText = cheerio.load(leagueHtml).text().replace('Clasificación', '').trim();
+          currentLeague = matchLeague(leagueText);
+        }
+        
+        // Si tenemos una liga válida, buscar partidos en el resto
+        if (currentLeague) {
+          // Buscar partidos: <span>HORA</span>EQUIPO1 - EQUIPO2 <a>-:-</a>
+          const matchPattern = /<span[^>]*>(\d{1,2}:\d{2})<\/span>([^<]+)\s*-\s*([^<]+?)\s*<a[^>]*class="sched"[^>]*>-:-<\/a>/gi;
+          
+          let match;
+          while ((match = matchPattern.exec(part)) !== null) {
+            const time = match[1];
+            const homeTeam = match[2].trim();
+            const awayTeam = match[3].trim();
+            
+            if (homeTeam && awayTeam && homeTeam.length > 1 && awayTeam.length > 1) {
+              const matchId = `fs_${dateStr}_${homeTeam}_${awayTeam}`.replace(/\s+/g, '_').toLowerCase();
+              
+              if (!seenIds.has(matchId)) {
+                seenIds.add(matchId);
+                
+                // Crear fecha completa
+                const [hours, minutes] = time.split(':').map(Number);
+                const matchDate = new Date(baseDate);
+                matchDate.setHours(hours, minutes, 0, 0);
+                
+                allMatches.push({
+                  id: matchId,
+                  homeTeam,
+                  awayTeam,
+                  league: currentLeague.name,
+                  country: currentLeague.country,
+                  matchDate: matchDate.toISOString(),
+                  status: 'Scheduled',
+                });
+              }
+            }
+          }
         }
       }
+      
+      console.log(`  ✅ Día +${dayOffset}: procesado`);
+      
+      // Pausa entre requests
+      await new Promise(r => setTimeout(r, 300));
+      
+    } catch (error) {
+      console.log(`  ❌ Error día +${dayOffset}`);
     }
-    
-  } catch (error) {
-    console.error('❌ Error API-Football:', error);
-  }
-  
-  // ===== 2. ESPN: Partidos de hoy (backup) =====
-  try {
-    console.log('\n📺 ESPN: Buscando partidos de hoy...');
-    
-    const espnLeagues = ['col.1', 'mex.1', 'arg.1', 'bra.1', 'eng.1', 'esp.1', 'ita.1', 'ger.1', 'fra.1'];
-    
-    const espnRequests = espnLeagues.map(async (code) => {
-      try {
-        const r = await fetch(`${ESPN_API}/${code}/scoreboard`, {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-          signal: AbortSignal.timeout(10000)
-        });
-        const data = await r.json();
-        return { code, events: data.events || [] };
-      } catch {
-        return { code, events: [] };
-      }
-    });
-    
-    const espnResults = await Promise.all(espnRequests);
-    
-    for (const { code, events } of espnResults) {
-      for (const event of events) {
-        if (event.status?.type?.completed) continue;
-        
-        const matchId = `espn_${event.id}`;
-        if (seenIds.has(matchId)) continue;
-        seenIds.add(matchId);
-        
-        const home = event.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === 'home');
-        const away = event.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === 'away');
-        
-        // Determinar liga y país
-        let league = 'Liga';
-        let country = 'Internacional';
-        if (code.includes('col')) { league = 'Liga BetPlay'; country = 'Colombia'; }
-        else if (code.includes('mex')) { league = 'Liga MX'; country = 'México'; }
-        else if (code.includes('arg')) { league = 'Liga Profesional'; country = 'Argentina'; }
-        else if (code.includes('bra')) { league = 'Brasileirão'; country = 'Brasil'; }
-        else if (code.includes('eng')) { league = 'Premier League'; country = 'Inglaterra'; }
-        else if (code.includes('esp')) { league = 'La Liga'; country = 'España'; }
-        else if (code.includes('ita')) { league = 'Serie A'; country = 'Italia'; }
-        else if (code.includes('ger')) { league = 'Bundesliga'; country = 'Alemania'; }
-        else if (code.includes('fra')) { league = 'Ligue 1'; country = 'Francia'; }
-        
-        allMatches.push({
-          id: matchId,
-          homeTeam: home?.team?.displayName || 'TBD',
-          awayTeam: away?.team?.displayName || 'TBD',
-          league,
-          country,
-          matchDate: event.date,
-          status: event.status?.type?.state === 'in' ? 'LIVE' : 'Scheduled',
-          homeLogo: home?.team?.logo,
-          awayLogo: away?.team?.logo,
-        });
-      }
-    }
-    
-  } catch (error) {
-    console.error('❌ Error ESPN:', error);
   }
   
   // Ordenar por fecha
   allMatches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
   
-  // Filtrar próximos días
+  // Filtrar partidos futuros
   const now = new Date();
-  const maxDate = new Date();
-  maxDate.setDate(maxDate.getDate() + days);
-  
-  const filteredMatches = allMatches.filter(m => {
-    const date = new Date(m.matchDate);
-    return date >= now && date <= maxDate;
-  });
+  const filteredMatches = allMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime());
   
   // Actualizar cache
   cachedMatches = filteredMatches;
@@ -252,6 +214,16 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
   
   const elapsed = Date.now() - startTime;
   console.log(`\n✅ TOTAL: ${filteredMatches.length} partidos en ${(elapsed/1000).toFixed(1)}s`);
+  
+  // Resumen por liga
+  const byLeague = new Map<string, number>();
+  for (const m of filteredMatches) {
+    byLeague.set(m.league, (byLeague.get(m.league) || 0) + 1);
+  }
+  console.log('\n📊 Por liga:');
+  for (const [league, count] of byLeague) {
+    console.log(`  ${league}: ${count}`);
+  }
   
   return filteredMatches;
 }
@@ -264,50 +236,7 @@ export function getTeamStats(teamId: number | undefined): { goalsFor: number; go
 
 // ===== RESULTADOS =====
 export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]> {
-  const results: MatchResult[] = [];
-  const today = new Date().toISOString().split('T')[0];
-  
-  try {
-    const response = await fetch(
-      `${AS_API_URL}/fixtures?date=${today}`,
-      { headers: { 'x-apisports-key': AS_API_KEY } }
-    );
-    
-    const data = await response.json();
-    const fixtures = data.response || [];
-    
-    for (const fixture of fixtures) {
-      const matchId = `af_${fixture.fixture?.id}`;
-      if (!matchIds.includes(matchId)) continue;
-      
-      const status = fixture.fixture?.status?.short;
-      if (!['FT', 'AET', 'PEN'].includes(status)) continue;
-      
-      const homeScore = fixture.goals?.home ?? 0;
-      const awayScore = fixture.goals?.away ?? 0;
-      
-      let winner: 'home' | 'away' | 'draw' = 'draw';
-      if (homeScore > awayScore) winner = 'home';
-      else if (awayScore > homeScore) winner = 'away';
-      
-      results.push({
-        id: matchId,
-        homeTeam: fixture.teams?.home?.name || 'TBD',
-        awayTeam: fixture.teams?.away?.name || 'TBD',
-        league: fixture.league?.name || 'Liga',
-        matchDate: fixture.fixture?.date,
-        status: 'FT',
-        homeScore,
-        awayScore,
-        winner,
-        totalGoals: homeScore + awayScore,
-      });
-    }
-  } catch (error) {
-    console.error('Error resultados:', error);
-  }
-  
-  return results;
+  return [];
 }
 
 // ===== EVALUAR PICK =====
