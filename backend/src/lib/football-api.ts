@@ -1,7 +1,8 @@
 // API de Fútbol - El Dios Yerson
-// 🌐 SCRAPER con Cheerio - Flashscore Móvil (HTML estático)
-// GRATIS, SIN APIs, SIN LÍMITES
+// 🚀 SCRAPER con Playwright + Cheerio
+// Fuente: Flashscore.com (HTML renderizado con JavaScript)
 
+import { chromium, Browser } from 'playwright';
 import * as cheerio from 'cheerio';
 
 // ===== INTERFACES =====
@@ -41,191 +42,266 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 // Cache de estadísticas
 const teamStatsCache = new Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>();
 
-console.log('⚽ Scraper: Flashscore Móvil (Cheerio)');
+// ===== BROWSER SINGLETON =====
+let browserInstance: Browser | null = null;
 
-// ===== LIGAS QUE USAN CASAS DE APUESTAS LATAM =====
-const ALLOWED_LEAGUES: { patterns: string[]; name: string; country: string }[] = [
-  // LATAM
-  { patterns: ['COLOMBIA', 'Categoria', 'Dimayor'], name: 'Liga BetPlay', country: 'Colombia' },
-  { patterns: ['ARGENTINA'], name: 'Liga Argentina', country: 'Argentina' },
-  { patterns: ['BRASIL', 'Brasileirao', 'Paulista', 'Mineiro', 'Carioca', 'Gaucho'], name: 'Brasileirão', country: 'Brasil' },
-  { patterns: ['MEXICO', 'Liga MX'], name: 'Liga MX', country: 'México' },
-  { patterns: ['CHILE'], name: 'Primera Chile', country: 'Chile' },
-  { patterns: ['ECUADOR', 'Liga Pro'], name: 'Liga Pro Ecuador', country: 'Ecuador' },
-  { patterns: ['PERU', 'Liga 1'], name: 'Liga 1 Perú', country: 'Perú' },
-  { patterns: ['URUGUAY'], name: 'Primera Uruguay', country: 'Uruguay' },
-  { patterns: ['PARAGUAY'], name: 'Primera Paraguay', country: 'Paraguay' },
-  { patterns: ['VENEZUELA', 'FUTVE'], name: 'Primera Venezuela', country: 'Venezuela' },
-  { patterns: ['BOLIVIA'], name: 'Liga Bolivia', country: 'Bolivia' },
-  
-  // Copas LATAM
-  { patterns: ['Libertadores'], name: 'Copa Libertadores', country: 'Sudamérica' },
-  { patterns: ['Sudamericana'], name: 'Copa Sudamericana', country: 'Sudamérica' },
-  
-  // Europa Top 5
-  { patterns: ['INGLATERRA', 'Premier League'], name: 'Premier League', country: 'Inglaterra' },
-  { patterns: ['ESPAÑA', 'LaLiga', 'La Liga'], name: 'La Liga', country: 'España' },
-  { patterns: ['ITALIA', 'Serie A'], name: 'Serie A', country: 'Italia' },
-  { patterns: ['ALEMANIA', 'Bundesliga'], name: 'Bundesliga', country: 'Alemania' },
-  { patterns: ['FRANCIA', 'Ligue 1'], name: 'Ligue 1', country: 'Francia' },
-  
-  // Copas Europa
-  { patterns: ['Champions League', 'Champions'], name: 'Champions League', country: 'Europa' },
-  { patterns: ['Europa League'], name: 'Europa League', country: 'Europa' },
-  { patterns: ['FA Cup'], name: 'FA Cup', country: 'Inglaterra' },
-  
-  // Otros populares
-  { patterns: ['ESTADOS UNIDOS', 'MLS'], name: 'MLS', country: 'Estados Unidos' },
-  { patterns: ['PAISES BAJOS', 'Eredivisie', 'HOLANDA'], name: 'Eredivisie', country: 'Holanda' },
-  { patterns: ['PORTUGAL', 'Liga Portugal'], name: 'Primeira Liga', country: 'Portugal' },
-  { patterns: ['TURQUIA', 'Super Lig'], name: 'Süper Lig', country: 'Turquía' },
-  { patterns: ['BÉLGICA', 'Jupiler'], name: 'Jupiler Pro League', country: 'Bélgica' },
-];
-
-// ===== FUNCIÓN PARA MATCHear LIGA =====
-function matchLeague(leagueText: string): { name: string; country: string } | null {
-  const upper = leagueText.toUpperCase();
-  
-  for (const league of ALLOWED_LEAGUES) {
-    for (const pattern of league.patterns) {
-      if (upper.includes(pattern.toUpperCase())) {
-        return { name: league.name, country: league.country };
-      }
-    }
+async function getBrowser(): Promise<Browser> {
+  if (!browserInstance) {
+    console.log('🌐 Iniciando navegador Playwright...');
+    browserInstance = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+      ]
+    });
   }
-  
-  return null;
+  return browserInstance;
 }
 
-// ===== FUNCIÓN PRINCIPAL =====
+// Cerrar browser al terminar el proceso
+process.on('SIGINT', async () => {
+  if (browserInstance) {
+    await browserInstance.close();
+  }
+  process.exit();
+});
+
+console.log('⚽ Scraper: Playwright + Cheerio → Flashscore.com');
+
+// ===== LIGAS PRINCIPALES (solo las que usan casas de apuestas LATAM) =====
+// Solo aceptar estas ligas específicas
+const ALLOWED_LEAGUES = [
+  // === LATAM ===
+  'liga betplay', 'primera a', 'categoria', 'colombia',
+  'liga profesional', 'argentina', 'boca', 'river', 'racing', 'independiente',
+  'brasileirão', 'brasileirao', 'serie a brazil', 'brazil serie',
+  'liga mx', 'mexico', 'méxico', 'liga bbva mx',
+  'primera chile', 'chile', 'colocolo', 'u. catolica', 'universidad',
+  'liga pro ecuador', 'ecuador', 'ldu', 'barcelona sc', 'emelec',
+  'liga 1 peru', 'peru', 'perú', 'alianza', 'universitario',
+  // === Copas LATAM ===
+  'copa libertadores', 'libertadores', 'conmebol',
+  'copa sudamericana', 'sudamericana',
+  // === Europa Top 5 ===
+  'premier league', 'england', 'inglaterra', 'manchester', 'liverpool', 'chelsea', 'arsenal', 'tottenham',
+  'la liga', 'laliga', 'spain', 'españa', 'barcelona', 'real madrid', 'atletico', 'sevilla', 'valencia',
+  'serie a', 'italy', 'italia', 'juventus', 'milan', 'inter', 'napoli', 'roma', 'lazio',
+  'bundesliga', 'germany', 'alemania', 'bayern', 'dortmund', 'leipzig', 'leverkusen',
+  'ligue 1', 'france', 'francia', 'psg', 'marseille', 'lyon',
+  // === Copas Europa ===
+  'champions league', 'ucl', 'champions',
+  'europa league', 'uel', 'europa',
+  'conference league',
+  'fa cup', 'copa del rey', 'coppa italia', 'dfb pokal', 'coupe de france',
+  // === Otros populares en LATAM ===
+  'mls', 'major league soccer', 'inter miami', 'la galaxy',
+  'eredivisie', 'netherlands', 'holanda', 'ajax', 'psv', 'feyenoord',
+  'primeira liga', 'portugal', 'benfica', 'porto', 'sporting',
+];
+
+// Función para verificar si una liga está permitida
+function isAllowedLeague(leagueText: string): boolean {
+  const text = leagueText.toLowerCase();
+  
+  // Rechazar ligas menores
+  const REJECT = ['u19', 'u18', 'u20', 'u17', 'women', 'w ', ' w', 'reserves', 'b team', 
+                  'youth', 'primavera', 'swazi', 'benin', 'fiji', 'vanuatu'];
+  if (REJECT.some(r => text.includes(r))) return false;
+  
+  // Verificar ligas permitidas
+  return ALLOWED_LEAGUES.some(l => text.includes(l));
+}
+
+// Función para extraer país y liga del header
+function parseLeagueHeader(headerText: string): { league: string; country: string } {
+  // Formato típico: "Ligue 1FRANCE: Standings" o "BundesligaGERMANY:"
+  const text = headerText.replace(/Standings|Live|display matches/gi, '').trim();
+  
+  // Buscar país en mayúsculas
+  const countryMatch = text.match(/[A-Z]{2,}(?::|$|\s)/);
+  let country = countryMatch ? countryMatch[0].replace(':', '').trim() : '';
+  
+  // Mapear países
+  const countryMap: Record<string, string> = {
+    'FRANCE': 'Francia', 'GERMANY': 'Alemania', 'ITALY': 'Italia',
+    'SPAIN': 'España', 'ENGLAND': 'Inglaterra', 'NETHERLANDS': 'Holanda',
+    'PORTUGAL': 'Portugal', 'BELGIUM': 'Bélgica', 'BRAZIL': 'Brasil',
+    'ARGENTINA': 'Argentina', 'COLOMBIA': 'Colombia', 'MEXICO': 'México',
+    'CHILE': 'Chile', 'ECUADOR': 'Ecuador', 'PERU': 'Perú', 'URUGUAY': 'Uruguay',
+    'PARAGUAY': 'Paraguay', 'VENEZUELA': 'Venezuela', 'BOLIVIA': 'Bolivia',
+    'ASIA': 'Asia', 'USA': 'Estados Unidos', 'AUSTRALIA': 'Australia',
+    'TURKEY': 'Turquía', 'GREECE': 'Grecia', 'RUSSIA': 'Rusia',
+  };
+  
+  country = countryMap[country] || country;
+  
+  // Liga es el resto del texto
+  let league = text.replace(/[A-Z]{2,}(?::|$|\s)/g, '').trim();
+  
+  return { league: league || headerText.substring(0, 30), country };
+}
+
+// ===== FUNCIÓN PRINCIPAL DE SCRAPING =====
+async function scrapeFlashscore(): Promise<MatchForApp[]> {
+  const browser = await getBrowser();
+  const matches: MatchForApp[] = [];
+  
+  try {
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    
+    const page = await context.newPage();
+    
+    console.log('  📡 Navegando a Flashscore...');
+    await page.goto('https://www.flashscore.com/', { 
+      waitUntil: 'networkidle', 
+      timeout: 45000 
+    });
+    
+    // Esperar a que carguen los partidos
+    await page.waitForSelector('.event__match', { timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    
+    // Expandir ligas colapsadas
+    const moreButtons = await page.$$('.event__more');
+    if (moreButtons.length > 0) {
+      console.log(`  📂 Expandiendo ${moreButtons.length} ligas...`);
+      for (const button of moreButtons.slice(0, 30)) {
+        await button.click().catch(() => {});
+        await page.waitForTimeout(150);
+      }
+    }
+    
+    const html = await page.content();
+    await context.close();
+    
+    console.log(`  📄 HTML: ${(html.length / 1024).toFixed(0)}KB`);
+    
+    // Parsear con Cheerio
+    const $ = cheerio.load(html);
+    
+    let currentLeague = '';
+    let currentCountry = '';
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Iterar sobre todos los elementos en orden
+    $('.sportName.soccer > div').each((_, el) => {
+      const element = $(el);
+      const classAttr = element.attr('class') || '';
+      
+      // Si es un header de liga/torneo
+      if (classAttr.includes('event__header') || classAttr.includes('header')) {
+        const headerText = element.text().trim();
+        if (headerText && !headerText.includes('Standings')) {
+          const parsed = parseLeagueHeader(headerText);
+          currentLeague = parsed.league;
+          currentCountry = parsed.country;
+        }
+        return;
+      }
+      
+      // Si es un partido
+      if (classAttr.includes('event__match')) {
+        // Verificar que la liga esté permitida
+        const leagueText = `${currentLeague} ${currentCountry}`;
+        if (!isAllowedLeague(leagueText)) {
+          return;
+        }
+        
+        // Extraer equipos - buscar en elementos con participant
+        const homeEl = element.find('[class*="homeParticipant"], .event__homeParticipant');
+        const awayEl = element.find('[class*="awayParticipant"], .event__awayParticipant');
+        
+        const homeTeam = homeEl.find('span').last().text().trim() || homeEl.text().trim();
+        const awayTeam = awayEl.find('span').last().text().trim() || awayEl.text().trim();
+        
+        // Extraer logos
+        const homeLogo = homeEl.find('img').attr('src') || '';
+        const awayLogo = awayEl.find('img').attr('src') || '';
+        
+        // Extraer hora/estado
+        const timeText = element.find('.event__time').text().trim();
+        const stageText = element.find('.event__stage').text().trim();
+        
+        // Determinar estado
+        let status = 'Scheduled';
+        if (stageText.toLowerCase().includes('finished') || stageText.includes('FT')) {
+          status = 'FT';
+        } else if (stageText.includes("'") || stageText.toLowerCase().includes('live')) {
+          status = 'LIVE';
+        } else if (timeText) {
+          status = timeText;
+        }
+        
+        // Crear fecha
+        let matchDate = today;
+        if (timeText && timeText.includes(':')) {
+          matchDate = `${today}T${timeText}:00`;
+        }
+        
+        // ID único
+        const matchId = `fs_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        if (homeTeam && awayTeam && homeTeam.length > 1 && awayTeam.length > 1) {
+          matches.push({
+            id: matchId,
+            homeTeam,
+            awayTeam,
+            league: currentLeague || 'Liga',
+            country: currentCountry || 'Internacional',
+            matchDate,
+            status,
+            homeLogo,
+            awayLogo,
+          });
+        }
+      }
+    });
+    
+    console.log(`    ✅ ${matches.length} partidos de ligas permitidas`);
+    
+  } catch (error) {
+    console.error(`    ❌ Error:`, error);
+  }
+  
+  return matches;
+}
+
+// ===== FUNCIÓN PRINCIPAL EXPORTADA =====
 export async function getUpcomingMatches(days: number = 7): Promise<MatchForApp[]> {
   // Verificar cache
   if (cachedMatches.length > 0 && Date.now() - cacheTime < CACHE_DURATION) {
     console.log('📦 Usando cache:', cachedMatches.length, 'partidos');
-    const now = new Date();
-    return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime());
+    return cachedMatches;
   }
   
-  console.log('🌐 Obteniendo partidos de Flashscore Móvil...');
+  console.log('🌐 Obteniendo partidos con Playwright...');
   const startTime = Date.now();
   
   const allMatches: MatchForApp[] = [];
-  const seenIds = new Set<string>();
   
-  // Headers para simular móvil
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-    'Cache-Control': 'no-cache',
-  };
-  
-  // Obtener partidos de cada día
-  for (let dayOffset = 0; dayOffset < days; dayOffset++) {
-    try {
-      const url = `https://m.flashscore.es/?d=${dayOffset}`;
-      
-      const response = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
-      const html = await response.text();
-      
-      const $ = cheerio.load(html);
-      
-      // Fecha base para este día
-      const baseDate = new Date();
-      baseDate.setDate(baseDate.getDate() + dayOffset);
-      const dateStr = baseDate.toISOString().split('T')[0];
-      
-      // Obtener el contenido del main
-      const mainContent = $('#main').html() || '';
-      
-      // Separar por <h4> para identificar ligas
-      const parts = mainContent.split(/<h4[^>]*>/i);
-      
-      let currentLeague: { name: string; country: string } | null = null;
-      
-      for (const part of parts) {
-        // Verificar si esta parte comienza con un nombre de liga
-        const h4End = part.indexOf('</h4>');
-        
-        if (h4End > 0) {
-          // Es un título de liga
-          const leagueHtml = part.substring(0, h4End);
-          const leagueText = cheerio.load(leagueHtml).text().replace('Clasificación', '').trim();
-          currentLeague = matchLeague(leagueText);
-        }
-        
-        // Si tenemos una liga válida, buscar partidos en el resto
-        if (currentLeague) {
-          // Buscar partidos: <span>HORA</span>EQUIPO1 - EQUIPO2 <a>-:-</a>
-          const matchPattern = /<span[^>]*>(\d{1,2}:\d{2})<\/span>([^<]+)\s*-\s*([^<]+?)\s*<a[^>]*class="sched"[^>]*>-:-<\/a>/gi;
-          
-          let match;
-          while ((match = matchPattern.exec(part)) !== null) {
-            const time = match[1];
-            const homeTeam = match[2].trim();
-            const awayTeam = match[3].trim();
-            
-            if (homeTeam && awayTeam && homeTeam.length > 1 && awayTeam.length > 1) {
-              const matchId = `fs_${dateStr}_${homeTeam}_${awayTeam}`.replace(/\s+/g, '_').toLowerCase();
-              
-              if (!seenIds.has(matchId)) {
-                seenIds.add(matchId);
-                
-                // Crear fecha completa
-                const [hours, minutes] = time.split(':').map(Number);
-                const matchDate = new Date(baseDate);
-                matchDate.setHours(hours, minutes, 0, 0);
-                
-                allMatches.push({
-                  id: matchId,
-                  homeTeam,
-                  awayTeam,
-                  league: currentLeague.name,
-                  country: currentLeague.country,
-                  matchDate: matchDate.toISOString(),
-                  status: 'Scheduled',
-                });
-              }
-            }
-          }
-        }
-      }
-      
-      console.log(`  ✅ Día +${dayOffset}: procesado`);
-      
-      // Pausa entre requests
-      await new Promise(r => setTimeout(r, 300));
-      
-    } catch (error) {
-      console.log(`  ❌ Error día +${dayOffset}`);
-    }
+  try {
+    const matches = await scrapeFlashscore();
+    allMatches.push(...matches);
+  } catch (error) {
+    console.error('❌ Error general:', error);
   }
   
   // Ordenar por fecha
-  allMatches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
-  
-  // Filtrar partidos futuros
-  const now = new Date();
-  const filteredMatches = allMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime());
+  allMatches.sort((a, b) => a.matchDate.localeCompare(b.matchDate));
   
   // Actualizar cache
-  cachedMatches = filteredMatches;
+  cachedMatches = allMatches;
   cacheTime = Date.now();
   
   const elapsed = Date.now() - startTime;
-  console.log(`\n✅ TOTAL: ${filteredMatches.length} partidos en ${(elapsed/1000).toFixed(1)}s`);
+  console.log(`\n✅ TOTAL: ${allMatches.length} partidos en ${(elapsed/1000).toFixed(1)}s`);
   
-  // Resumen por liga
-  const byLeague = new Map<string, number>();
-  for (const m of filteredMatches) {
-    byLeague.set(m.league, (byLeague.get(m.league) || 0) + 1);
-  }
-  console.log('\n📊 Por liga:');
-  for (const [league, count] of byLeague) {
-    console.log(`  ${league}: ${count}`);
-  }
-  
-  return filteredMatches;
+  return allMatches;
 }
 
 // ===== OBTENER STATS =====
