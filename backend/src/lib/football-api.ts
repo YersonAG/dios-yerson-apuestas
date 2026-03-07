@@ -1,5 +1,6 @@
 // API de Fútbol - El Dios Yerson
-// Usa api-sports.io (API-Football) - Plan GRATIS funciona con temporadas 2022-2024
+// FUENTE PRINCIPAL: football-data.org (datos en tiempo real)
+// FUENTE SECUNDARIA: api-sports.io (estadísticas históricas)
 
 // ===== INTERFACES =====
 export interface MatchForApp {
@@ -38,35 +39,31 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 // Cache de estadísticas
 const teamStatsCache = new Map<number, { goalsFor: number; goalsAgainst: number; form: string; position: number }>();
 
-// ===== API: API-SPORTS.IO =====
-const API_KEY = process.env.FOOTBALL_API_KEY || process.env.FOOTBALL_DATA_API_KEY || '1b61538134ffc3ee9b7f637ceebe7524';
-const API_URL = 'https://v3.football.api-sports.io';
+// ===== APIs =====
+// football-data.org - Principal (datos en tiempo real)
+const FD_API_KEY = process.env.FOOTBALL_DATA_API_KEY || '435367d92f8344c887a47200a1f34b13';
+const FD_API_URL = 'https://api.football-data.org/v4';
 
-console.log('🔑 API-FOOTBALL KEY:', API_KEY ? '✅ Configurada' : '❌ No configurada');
+// api-sports.io - Secundario (estadísticas históricas, plan gratis solo 2022-2024)
+const AS_API_KEY = process.env.FOOTBALL_API_KEY || '1b61538134ffc3ee9b7f637ceebe7524';
+const AS_API_URL = 'https://v3.football.api-sports.io';
 
-// ===== LIGAS DISPONIBLES EN PLAN GRATIS =====
-const LEAGUES_LATAM = [
-  { id: 239, name: 'Liga BetPlay', country: 'Colombia' },
-  { id: 128, name: 'Liga Argentina', country: 'Argentina' },
-  { id: 71, name: 'Brasileirão', country: 'Brasil' },
-  { id: 262, name: 'Liga MX', country: 'México' },
-  { id: 265, name: 'Primera Chile', country: 'Chile' },
-  { id: 242, name: 'Liga Pro', country: 'Ecuador' },
-  { id: 249, name: 'Liga 1', country: 'Perú' },
-  { id: 274, name: 'Primera Uruguay', country: 'Uruguay' },
-  { id: 13, name: 'Copa Libertadores', country: 'Sudamérica' },
-  { id: 11, name: 'Copa Sudamericana', country: 'Sudamérica' },
-];
+console.log('🔑 football-data.org KEY:', FD_API_KEY ? '✅ Configurada' : '❌ No configurada');
+console.log('🔑 api-sports.io KEY:', AS_API_KEY ? '✅ Configurada' : '❌ No configurada');
 
-const LEAGUES_EUROPA = [
-  { id: 39, name: 'Premier League', country: 'Inglaterra' },
-  { id: 140, name: 'La Liga', country: 'España' },
-  { id: 135, name: 'Serie A', country: 'Italia' },
-  { id: 78, name: 'Bundesliga', country: 'Alemania' },
-  { id: 61, name: 'Ligue 1', country: 'Francia' },
-  { id: 88, name: 'Eredivisie', country: 'Holanda' },
-  { id: 94, name: 'Primeira Liga', country: 'Portugal' },
-  { id: 2, name: 'Champions League', country: 'Europa' },
+// ===== COMPETICIONES football-data.org =====
+const FD_COMPETITIONS = [
+  { code: 'PL', name: 'Premier League', country: 'Inglaterra' },
+  { code: 'PD', name: 'La Liga', country: 'España' },
+  { code: 'SA', name: 'Serie A', country: 'Italia' },
+  { code: 'BL1', name: 'Bundesliga', country: 'Alemania' },
+  { code: 'FL1', name: 'Ligue 1', country: 'Francia' },
+  { code: 'DED', name: 'Eredivisie', country: 'Holanda' },
+  { code: 'PPL', name: 'Primeira Liga', country: 'Portugal' },
+  { code: 'ELC', name: 'Championship', country: 'Inglaterra' },
+  { code: 'CL', name: 'Champions League', country: 'Europa' },
+  { code: 'ELC', name: 'Europa League', country: 'Europa' },
+  { code: 'BSA', name: 'Brasileirão', country: 'Brasil' },
 ];
 
 // ===== FUNCIÓN PRINCIPAL =====
@@ -78,176 +75,111 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
     return cachedMatches.filter(m => new Date(m.matchDate).getTime() > now.getTime() + 30 * 60 * 1000);
   }
   
-  console.log('🌐 Obteniendo partidos de api-sports.io...');
+  console.log('🌐 Obteniendo partidos de football-data.org...');
   
   const allMatches: MatchForApp[] = [];
   const seenIds = new Set<string>();
   
   try {
-    // 1. Obtener próximos 50 partidos (endpoint general)
-    const nextResponse = await fetch(
-      `${API_URL}/fixtures?next=50`,
+    // Calcular rango de fechas
+    const today = new Date();
+    const fromDate = today.toISOString().split('T')[0];
+    const toDate = new Date(today.getTime() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    console.log(`📅 Buscando partidos del ${fromDate} al ${toDate}`);
+    
+    // 1. Obtener TODOS los partidos del rango (endpoint general)
+    const matchesResponse = await fetch(
+      `${FD_API_URL}/matches?dateFrom=${fromDate}&dateTo=${toDate}`,
       {
-        headers: { 'x-apisports-key': API_KEY },
-        signal: AbortSignal.timeout(15000)
+        headers: { 'X-Auth-Token': FD_API_KEY },
+        signal: AbortSignal.timeout(20000)
       }
     );
     
-    if (nextResponse.ok) {
-      const data = await nextResponse.json();
-      const fixtures = data.response || [];
+    if (matchesResponse.ok) {
+      const data = await matchesResponse.json();
+      const matches = data.matches || [];
       
-      for (const fixture of fixtures) {
-        const matchId = `as_${fixture.fixture.id}`;
+      console.log(`✅ Total partidos del endpoint general: ${matches.length}`);
+      
+      for (const match of matches) {
+        // Solo partidos no terminados
+        if (match.status === 'FINISHED' || match.status === 'CANCELLED') continue;
+        
+        const matchId = `fd_${match.id}`;
         if (seenIds.has(matchId)) continue;
         seenIds.add(matchId);
         
-        allMatches.push({
-          id: matchId,
-          homeTeam: fixture.teams?.home?.name || 'TBD',
-          awayTeam: fixture.teams?.away?.name || 'TBD',
-          league: fixture.league?.name || 'Liga',
-          country: fixture.league?.country || 'Internacional',
-          matchDate: fixture.fixture?.date,
-          status: fixture.fixture?.status?.short || 'NS',
-          homeLogo: fixture.teams?.home?.logo,
-          awayLogo: fixture.teams?.away?.logo,
-          leagueLogo: fixture.league?.logo,
-          homeTeamId: fixture.teams?.home?.id,
-          awayTeamId: fixture.teams?.away?.id,
-        });
-      }
-      
-      console.log(`✅ Próximos partidos: ${fixtures.length}`);
-    }
-    
-    // 2. Obtener partidos en vivo
-    const liveResponse = await fetch(
-      `${API_URL}/fixtures?live=all`,
-      {
-        headers: { 'x-apisports-key': API_KEY },
-        signal: AbortSignal.timeout(15000)
-      }
-    );
-    
-    if (liveResponse.ok) {
-      const data = await liveResponse.json();
-      const fixtures = data.response || [];
-      
-      for (const fixture of fixtures) {
-        const matchId = `as_${fixture.fixture.id}`;
-        if (seenIds.has(matchId)) continue;
-        seenIds.add(matchId);
+        // Buscar info de la competición
+        const compInfo = FD_COMPETITIONS.find(c => c.code === match.competition?.code);
         
         allMatches.push({
           id: matchId,
-          homeTeam: fixture.teams?.home?.name || 'TBD',
-          awayTeam: fixture.teams?.away?.name || 'TBD',
-          league: fixture.league?.name || 'Liga',
-          country: fixture.league?.country || 'Internacional',
-          matchDate: fixture.fixture?.date,
-          status: 'LIVE',
-          homeLogo: fixture.teams?.home?.logo,
-          awayLogo: fixture.teams?.away?.logo,
-          leagueLogo: fixture.league?.logo,
-          homeTeamId: fixture.teams?.home?.id,
-          awayTeamId: fixture.teams?.away?.id,
+          homeTeam: match.homeTeam?.name || 'TBD',
+          awayTeam: match.awayTeam?.name || 'TBD',
+          league: match.competition?.name || compInfo?.name || 'Liga',
+          country: compInfo?.country || match.area?.name || 'Internacional',
+          matchDate: match.utcDate,
+          status: match.status,
+          homeLogo: match.homeTeam?.crest,
+          awayLogo: match.awayTeam?.crest,
+          leagueLogo: match.competition?.emblem,
+          homeTeamId: match.homeTeam?.id,
+          awayTeamId: match.awayTeam?.id,
         });
       }
-      
-      console.log(`✅ Partidos en vivo: ${fixtures.length}`);
+    } else {
+      console.log('❌ Error endpoint general:', matchesResponse.status);
     }
     
-    // 3. Buscar en ligas LATAM específicamente (temporada 2024)
-    for (const league of LEAGUES_LATAM) {
-      await new Promise(r => setTimeout(r, 350)); // Rate limit
+    // 2. Buscar por competición para asegurar cobertura completa
+    for (const comp of FD_COMPETITIONS) {
+      await new Promise(r => setTimeout(r, 100)); // Rate limit
       
-      const leagueResponse = await fetch(
-        `${API_URL}/fixtures?league=${league.id}&season=2024&status=NS`,
+      const compResponse = await fetch(
+        `${FD_API_URL}/competitions/${comp.code}/matches?dateFrom=${fromDate}&dateTo=${toDate}`,
         {
-          headers: { 'x-apisports-key': API_KEY },
-          signal: AbortSignal.timeout(10000)
+          headers: { 'X-Auth-Token': FD_API_KEY },
+          signal: AbortSignal.timeout(15000)
         }
       );
       
-      if (leagueResponse.ok) {
-        const data = await leagueResponse.json();
-        const fixtures = data.response || [];
+      if (compResponse.ok) {
+        const data = await compResponse.json();
+        const matches = data.matches || [];
         
-        for (const fixture of fixtures) {
-          const matchId = `as_${fixture.fixture.id}`;
+        for (const match of matches) {
+          if (match.status === 'FINISHED' || match.status === 'CANCELLED') continue;
+          
+          const matchId = `fd_${match.id}`;
           if (seenIds.has(matchId)) continue;
           seenIds.add(matchId);
           
           allMatches.push({
             id: matchId,
-            homeTeam: fixture.teams?.home?.name || 'TBD',
-            awayTeam: fixture.teams?.away?.name || 'TBD',
-            league: league.name,
-            country: league.country,
-            matchDate: fixture.fixture?.date,
-            status: 'NS',
-            homeLogo: fixture.teams?.home?.logo,
-            awayLogo: fixture.teams?.away?.logo,
-            leagueLogo: fixture.league?.logo,
-            homeTeamId: fixture.teams?.home?.id,
-            awayTeamId: fixture.teams?.away?.id,
+            homeTeam: match.homeTeam?.name || 'TBD',
+            awayTeam: match.awayTeam?.name || 'TBD',
+            league: comp.name,
+            country: comp.country,
+            matchDate: match.utcDate,
+            status: match.status,
+            homeLogo: match.homeTeam?.crest,
+            awayLogo: match.awayTeam?.crest,
+            leagueLogo: match.competition?.emblem,
+            homeTeamId: match.homeTeam?.id,
+            awayTeamId: match.awayTeam?.id,
           });
         }
         
-        if (fixtures.length > 0) {
-          console.log(`✅ ${league.name}: ${fixtures.length} partidos`);
+        if (matches.length > 0) {
+          console.log(`✅ ${comp.name}: ${matches.length} partidos`);
         }
       }
-      
-      // Obtener standings
-      await fetchStandings(league.id);
     }
     
-    // 4. Buscar en ligas Europa
-    for (const league of LEAGUES_EUROPA) {
-      await new Promise(r => setTimeout(r, 350));
-      
-      const leagueResponse = await fetch(
-        `${API_URL}/fixtures?league=${league.id}&season=2024&status=NS`,
-        {
-          headers: { 'x-apisports-key': API_KEY },
-          signal: AbortSignal.timeout(10000)
-        }
-      );
-      
-      if (leagueResponse.ok) {
-        const data = await leagueResponse.json();
-        const fixtures = data.response || [];
-        
-        for (const fixture of fixtures) {
-          const matchId = `as_${fixture.fixture.id}`;
-          if (seenIds.has(matchId)) continue;
-          seenIds.add(matchId);
-          
-          allMatches.push({
-            id: matchId,
-            homeTeam: fixture.teams?.home?.name || 'TBD',
-            awayTeam: fixture.teams?.away?.name || 'TBD',
-            league: league.name,
-            country: league.country,
-            matchDate: fixture.fixture?.date,
-            status: 'NS',
-            homeLogo: fixture.teams?.home?.logo,
-            awayLogo: fixture.teams?.away?.logo,
-            leagueLogo: fixture.league?.logo,
-            homeTeamId: fixture.teams?.home?.id,
-            awayTeamId: fixture.teams?.away?.id,
-          });
-        }
-        
-        if (fixtures.length > 0) {
-          console.log(`✅ ${league.name}: ${fixtures.length} partidos`);
-        }
-      }
-      
-      await fetchStandings(league.id);
-    }
+    // 3. Obtener standings de api-sports.io para estadísticas
+    await fetchAllStandings();
     
   } catch (error) {
     console.error('❌ Error:', error);
@@ -256,7 +188,7 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
   // Ordenar por fecha
   allMatches.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
   
-  // Filtrar próximos 14 días
+  // Filtrar próximos días
   const now = new Date();
   const maxDate = new Date();
   maxDate.setDate(maxDate.getDate() + days);
@@ -275,36 +207,44 @@ export async function getUpcomingMatches(days: number = 14): Promise<MatchForApp
   return filteredMatches;
 }
 
-// ===== OBTENER STANDINGS =====
-async function fetchStandings(leagueId: number): Promise<void> {
-  try {
-    const response = await fetch(
-      `${API_URL}/standings?league=${leagueId}&season=2024`,
-      {
-        headers: { 'x-apisports-key': API_KEY },
-        signal: AbortSignal.timeout(10000)
+// ===== OBTENER STANDINGS DE API-SPORTS =====
+async function fetchAllStandings(): Promise<void> {
+  const leagues = [39, 140, 135, 78, 61, 88, 94, 71]; // Principales ligas + Brasil
+  
+  for (const leagueId of leagues) {
+    await new Promise(r => setTimeout(r, 300)); // Rate limit
+    
+    try {
+      const response = await fetch(
+        `${AS_API_URL}/standings?league=${leagueId}&season=2024`,
+        {
+          headers: { 'x-apisports-key': AS_API_KEY },
+          signal: AbortSignal.timeout(10000)
+        }
+      );
+      
+      if (!response.ok) continue;
+      
+      const data = await response.json();
+      const table = data.response?.[0]?.league?.standings?.[0];
+      
+      if (table) {
+        for (const row of table) {
+          const games = Math.max(1, row.all?.played || 1);
+          teamStatsCache.set(row.team.id, {
+            goalsFor: Math.round((row.all?.goals?.for || 0) / games * 100) / 100,
+            goalsAgainst: Math.round((row.all?.goals?.against || 0) / games * 100) / 100,
+            form: row.form || 'W,D,W,L,W',
+            position: row.rank,
+          });
+        }
       }
-    );
-    
-    if (!response.ok) return;
-    
-    const data = await response.json();
-    const table = data.response?.[0]?.league?.standings?.[0];
-    
-    if (table) {
-      for (const row of table) {
-        const games = Math.max(1, row.all?.played || 1);
-        teamStatsCache.set(row.team.id, {
-          goalsFor: Math.round((row.all?.goals?.for || 0) / games * 100) / 100,
-          goalsAgainst: Math.round((row.all?.goals?.against || 0) / games * 100) / 100,
-          form: row.form || 'W,D,W,L,W',
-          position: row.rank,
-        });
-      }
+    } catch (error) {
+      // Silencioso
     }
-  } catch (error) {
-    // Silencioso
   }
+  
+  console.log(`📊 Stats cacheadas para ${teamStatsCache.size} equipos`);
 }
 
 // ===== OBTENER STATS =====
@@ -318,23 +258,27 @@ export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]
   const results: MatchResult[] = [];
   
   try {
+    const today = new Date();
+    const fromDate = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const toDate = today.toISOString().split('T')[0];
+    
     const response = await fetch(
-      `${API_URL}/fixtures?status=FT`,
+      `${FD_API_URL}/matches?dateFrom=${fromDate}&dateTo=${toDate}&status=FINISHED`,
       {
-        headers: { 'x-apisports-key': API_KEY },
+        headers: { 'X-Auth-Token': FD_API_KEY },
         signal: AbortSignal.timeout(15000)
       }
     );
     
     if (response.ok) {
       const data = await response.json();
-      const fixtures = data.response || [];
+      const matches = data.matches || [];
       
-      for (const fixture of fixtures) {
-        const matchId = `as_${fixture.fixture.id}`;
+      for (const match of matches) {
+        const matchId = `fd_${match.id}`;
         if (matchIds.includes(matchId)) {
-          const homeScore = fixture.goals?.home ?? 0;
-          const awayScore = fixture.goals?.away ?? 0;
+          const homeScore = match.score?.fullTime?.home ?? 0;
+          const awayScore = match.score?.fullTime?.away ?? 0;
           
           let winner: 'home' | 'away' | 'draw' = 'draw';
           if (homeScore > awayScore) winner = 'home';
@@ -342,10 +286,10 @@ export async function getMatchResults(matchIds: string[]): Promise<MatchResult[]
           
           results.push({
             id: matchId,
-            homeTeam: fixture.teams.home.name,
-            awayTeam: fixture.teams.away.name,
-            league: fixture.league.name,
-            matchDate: fixture.fixture.date,
+            homeTeam: match.homeTeam.name,
+            awayTeam: match.awayTeam.name,
+            league: match.competition.name,
+            matchDate: match.utcDate,
             status: 'FT',
             homeScore,
             awayScore,
