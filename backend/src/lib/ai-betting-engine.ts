@@ -139,24 +139,57 @@ const competitionHistoryCache = new Map<string, Map<string, TeamGoals>>();
 const competitionHistoryCacheTime = new Map<string, number>();
 
 // ==========================================
-// MAPEO DE LIGAS
+// MAPEO DE LIGAS - TODAS LAS LIGAS ACTIVAS EN ESPN
 // ==========================================
 const LEAGUE_CODE_MAP: Record<string, string> = {
-  'Liga BetPlay': 'col.1',
-  'Liga Argentina': 'arg.1',
-  'Brasileirão': 'bra.1',
-  'Liga MX': 'mex.1',
+  // === EUROPA ===
   'Premier League': 'eng.1',
   'La Liga': 'esp.1',
   'Serie A': 'ita.1',
   'Bundesliga': 'ger.1',
   'Ligue 1': 'fra.1',
-  'Champions League': 'uefa.champions',
-  'Europa League': 'uefa.europa',
-  'MLS': 'usa.1',
   'Eredivisie': 'ned.1',
   'Primeira Liga': 'por.1',
   'Süper Lig': 'tur.1',
+  'Jupiler Pro League': 'bel.1',
+  'Scottish Premiership': 'sco.1',
+  'Greek Super League': 'gre.1',
+  'Russian Premier League': 'rus.1',
+  'Austrian Bundesliga': 'aut.1',
+  'Eliteserien': 'nor.1',
+  'Allsvenskan': 'swe.1',
+  
+  // === COMPETICIONES UEFA ===
+  'Champions League': 'uefa.champions',
+  'Europa League': 'uefa.europa',
+  'Conference League': 'uefa.conference',
+  
+  // === SUDAMÉRICA ===
+  'Liga BetPlay': 'col.1',
+  'Liga Argentina': 'arg.1',
+  'Brasileirão': 'bra.1',
+  'Liga MX': 'mex.1',
+  'Chilean Primera': 'chi.1',
+  'Ecuadorian Serie A': 'ecu.1',
+  'Peruvian Liga 1': 'per.1',
+  'Uruguayan Primera': 'uru.1',
+  'Paraguayan Primera': 'par.1',
+  'Venezuelan Primera': 'ven.1',
+  'Bolivian Primera': 'bol.1',
+  
+  // === CONMEBOL ===
+  'Copa Libertadores': 'conmebol.libertadores',
+  'Copa Sudamericana': 'conmebol.sudamericana',
+  
+  // === NORTE/CENTROAMÉRICA ===
+  'MLS': 'usa.1',
+  'Costa Rican Primera': 'crc.1',
+  
+  // === ASIA/OCEANÍA ===
+  'A-League': 'aus.1',
+  'J-League': 'jpn.1',
+  'Chinese Super League': 'chn.1',
+  'Indian Super League': 'ind.1',
 };
 
 // ==========================================
@@ -167,10 +200,11 @@ const LEAGUE_CODE_MAP: Record<string, string> = {
 const COMPETITION_STANDINGS_SUPPORTED = [
   'uefa.champions',
   'uefa.europa',
-  'uefa.conference',
+  // Conference League no tiene standings en ESPN todavía
 ];
 
 const COMPETITION_HISTORY_LEAGUES = [
+  'uefa.conference',
   'conmebol.libertadores',
   'conmebol.sudamericana',
 ];
