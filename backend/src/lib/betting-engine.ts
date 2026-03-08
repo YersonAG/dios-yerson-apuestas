@@ -52,15 +52,27 @@ const TEAMS_BY_LEAGUE: Record<string, { name: string; strength: number }[]> = {
 
 const LEAGUES = Object.keys(TEAMS_BY_LEAGUE);
 
-// Interfaces
+// Interfaces - Compatibles con ai-betting-engine.ts v5.2
 export interface Pick {
   matchId: string;
-  match: string;
+  match?: string; // Legacy: formato "Team1 vs Team2 (League)"
+  homeTeam?: string;
+  awayTeam?: string;
+  league?: string;
+  matchDate?: string;
   pick: string;
   odds: number;
   probability: number;
   risk: 'low' | 'medium' | 'high';
-  analysis: string;
+  analysis?: string;
+  score?: number;
+  monteCarloProb?: number;
+  eloDiff?: number;
+  xGTotal?: number;
+  volatility?: number;
+  valueBet?: number;
+  status?: 'pending' | 'live' | 'won' | 'lost';
+  safePicks?: string[];
 }
 
 export interface Combinada {
@@ -69,6 +81,7 @@ export interface Combinada {
   totalOdds: number;
   totalProbability: number;
   risk: 'low' | 'medium' | 'high';
+  score?: number;
   league?: string;
 }
 

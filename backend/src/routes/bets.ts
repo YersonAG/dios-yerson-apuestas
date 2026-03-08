@@ -200,45 +200,51 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Combinada inválida' });
     }
 
+    console.log(`📤 Usuario ${user.username} tomando apuesta con ${combinada.picks.length} picks`);
+
     // Crear los partidos y la apuesta
     const bet = await db.bet.create({
       data: {
         userId: user.id,
         status: 'active',
-        totalProbability: combinada.totalProbability,
-        riskLevel: combinada.risk,
+        totalProbability: combinada.totalProbability || 0,
+        riskLevel: combinada.risk || 'low',
       },
     });
 
     for (const pick of combinada.picks) {
-      // Parsear el match string
-      const matchParts = pick.match.split(' vs ');
-      const homeTeam = matchParts[0];
-      const awayTeam = matchParts[1]?.split(' (')[0] || 'Unknown';
-      const league = pick.match.match(/\(([^)]+)\)/)?.[1] || 'Mixta';
-      
-      const matchDate = new Date();
-      matchDate.setDate(matchDate.getDate() + Math.floor(Math.random() * 3));
+      // Usar los datos directamente del pick (formato del motor v5.2)
+      const matchId = pick.matchId || `match_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const homeTeam = pick.homeTeam || 'Local';
+      const awayTeam = pick.awayTeam || 'Visitante';
+      const league = pick.league || 'Mixta';
+      const matchDate = pick.matchDate ? new Date(pick.matchDate) : new Date();
 
-      const match = await db.match.create({
-        data: {
-          homeTeam,
-          awayTeam,
-          league,
-          matchDate,
-          homeOdds: pick.odds,
-          drawOdds: 3.5,
-          awayOdds: pick.odds > 2 ? pick.odds + 0.5 : 3.0,
-        },
-      });
+      // Verificar si el partido ya existe
+      const existingMatch = await db.match.findUnique({ where: { id: matchId } });
+      
+      if (!existingMatch) {
+        await db.match.create({
+          data: {
+            id: matchId,
+            homeTeam,
+            awayTeam,
+            league,
+            matchDate,
+            homeOdds: pick.odds || 2.0,
+            drawOdds: 3.3,
+            awayOdds: 3.5,
+          },
+        });
+      }
 
       await db.betItem.create({
         data: {
           betId: bet.id,
-          matchId: match.id,
-          pick: pick.pick,
-          odds: pick.odds,
-          probability: pick.probability,
+          matchId: matchId,
+          pick: pick.pick || 'Pick',
+          odds: pick.odds || 1.0,
+          probability: pick.probability || 0.5,
         },
       });
     }
@@ -247,6 +253,8 @@ router.post('/', async (req: Request, res: Response) => {
       where: { id: bet.id },
       include: { items: { include: { match: true } } },
     });
+
+    console.log(`✅ Apuesta creada: ${bet.id}`);
 
     return res.json({
       success: true,
