@@ -149,7 +149,7 @@ export async function getUpcomingMatches(days: number = 7): Promise<MatchForApp[
   const byLeague = new Map<string, number>();
   for (const m of allMatches) byLeague.set(m.league, (byLeague.get(m.league) || 0) + 1);
   console.log('\n📊 Por liga:');
-  for (const [league, count] of byLeague) console.log(`  ${league}: ${count}`);
+  for (const [league, count] of Array.from(byLeague.entries())) console.log(`  ${league}: ${count}`);
 
   return allMatches;
 }
