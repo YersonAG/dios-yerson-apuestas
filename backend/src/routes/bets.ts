@@ -3,11 +3,11 @@ import { Router, Request, Response } from 'express';
 import { db } from '../lib/db';
 import { getCurrentUser } from './auth';
 import { type Combinada } from '../lib/betting-engine';
-import { getMatchResults, evaluatePickResult } from '../lib/football-api';
+import { getMatchResults, evaluatePickResult, getLiveScores } from '../lib/football-api';
 
 const router = Router();
 
-// GET /api/bets - Obtener apuestas del usuario (con verificación automática de resultados)
+// GET /api/bets - Obtener apuestas del usuario (con scores en vivo)
 router.get('/', async (req: Request, res: Response) => {
   try {
     const user = await getCurrentUser(req.headers.authorization);
@@ -17,11 +17,11 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     const status = (req.query.status as string) || 'active';
-    const autoCheck = req.query.autoCheck !== 'false'; // Por defecto verificar resultados
+    const autoCheck = req.query.autoCheck !== 'false';
 
-    // Si se piden apuestas activas, verificar resultados automáticamente
+    // Si se piden apuestas activas, verificar resultados y obtener scores en vivo
     if (status === 'active' && autoCheck) {
-      await checkAndResultsForUser(user.id);
+      await checkAndUpdateLiveScores(user.id);
     }
 
     const bets = await db.bet.findMany({
@@ -37,8 +37,8 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// Función interna para verificar resultados de un usuario
-async function checkAndResultsForUser(userId: string) {
+// Función para obtener y actualizar scores en vivo
+async function checkAndUpdateLiveScores(userId: string) {
   try {
     // Buscar apuestas activas
     const activeBets = await db.bet.findMany({
@@ -49,62 +49,70 @@ async function checkAndResultsForUser(userId: string) {
     if (activeBets.length === 0) return;
 
     const now = new Date();
-    
+
+    // Recopilar todos los matchIds
+    const allMatchIds: string[] = [];
     for (const bet of activeBets) {
-      // Buscar items sin resultado cuyo partido ya terminó
-      const pendingItems = bet.items.filter(item => {
-        if (item.result) return false; // Ya tiene resultado
-        const matchDate = item.match.matchDate;
-        if (!matchDate) return false;
-        // El partido terminó si la fecha + 2 horas ya pasó
-        const matchEndTime = new Date(matchDate);
-        matchEndTime.setHours(matchEndTime.getHours() + 2);
-        return matchEndTime < now;
-      });
-
-      if (pendingItems.length === 0) continue;
-
-      // Obtener resultados para estos partidos
-      const matchIds = pendingItems.map(item => item.matchId);
-      const results = await getMatchResults(matchIds);
-
-      // Evaluar cada pick
-      for (const item of pendingItems) {
-        const matchResult = results.find(r => r.id === item.matchId);
+      for (const item of bet.items) {
+        if (allMatchIds.includes(item.matchId)) continue;
         
-        if (matchResult) {
-          const result = evaluatePickResult(item.pick, matchResult.homeScore, matchResult.awayScore);
+        const matchDate = item.match.matchDate;
+        if (!matchDate) continue;
+        
+        // Solo partidos de ayer, hoy o mañana
+        const matchDateObj = new Date(matchDate);
+        const diffDays = (matchDateObj.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+        if (diffDays >= -1 && diffDays <= 1) {
+          allMatchIds.push(item.matchId);
+        }
+      }
+    }
+
+    if (allMatchIds.length === 0) return;
+
+    console.log(`📊 Obteniendo scores en vivo para ${allMatchIds.length} partidos...`);
+
+    // Obtener scores en vivo
+    const liveScores = await getLiveScores(allMatchIds);
+
+    // Actualizar cada partido
+    for (const bet of activeBets) {
+      for (const item of bet.items) {
+        const liveScore = liveScores.get(item.matchId);
+        
+        if (!liveScore) continue;
+
+        // Actualizar el match con el score
+        await db.match.update({
+          where: { id: item.matchId },
+          data: {
+            homeScore: liveScore.homeScore,
+            awayScore: liveScore.awayScore,
+            status: liveScore.status === 'live' ? 'LIVE' : liveScore.status === 'finished' ? 'FINISHED' : 'Scheduled',
+          },
+        });
+
+        // Si el partido terminó y el item no tiene resultado, evaluarlo
+        if (liveScore.status === 'finished' && !item.result) {
+          const result = evaluatePickResult(item.pick, liveScore.homeScore, liveScore.awayScore);
           
-          // Actualizar el item
           await db.betItem.update({
             where: { id: item.id },
             data: { result },
           });
 
-          // Actualizar el match con el score y estado
-          await db.match.update({
-            where: { id: item.matchId },
-            data: {
-              homeScore: matchResult.homeScore,
-              awayScore: matchResult.awayScore,
-              status: 'FINISHED',
-            },
-          });
-
-          console.log(`📊 Pick ${item.pick}: ${result} (${matchResult.homeScore}-${matchResult.awayScore})`);
+          console.log(`📊 Pick ${item.pick}: ${result} (${liveScore.homeScore}-${liveScore.awayScore})`);
         }
       }
 
       // Verificar si todos los items tienen resultado
       const allItems = await db.betItem.findMany({ where: { betId: bet.id } });
       const allResolved = allItems.every(item => item.result);
-      
+
       if (allResolved) {
-        const allWon = allItems.every(item => item.result === 'won');
         const anyLost = allItems.some(item => item.result === 'lost');
         const finalResult = anyLost ? 'lost' : 'won';
 
-        // Actualizar la apuesta
         await db.bet.update({
           where: { id: bet.id },
           data: { status: finalResult },
@@ -112,21 +120,29 @@ async function checkAndResultsForUser(userId: string) {
 
         // Crear registro en historial
         const totalOdds = allItems.reduce((acc, item) => acc * item.odds, 1);
-        await db.betHistory.create({
-          data: {
-            betId: bet.id,
-            userId,
-            result: finalResult,
-            totalOdds,
-            matchesCount: allItems.length,
-          },
+        
+        const existingHistory = await db.betHistory.findFirst({
+          where: { betId: bet.id }
         });
+        
+        if (!existingHistory) {
+          await db.betHistory.create({
+            data: {
+              betId: bet.id,
+              userId,
+              result: finalResult,
+              totalOdds,
+              matchesCount: allItems.length,
+            },
+          });
+        }
 
         console.log(`🏆 Apuesta ${bet.id}: ${finalResult.toUpperCase()}`);
       }
     }
+
   } catch (error) {
-    console.error('Error verificando resultados:', error);
+    console.error('Error actualizando scores en vivo:', error);
   }
 }
 
@@ -139,7 +155,7 @@ router.post('/check-results', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'No autenticado' });
     }
 
-    await checkAndResultsForUser(user.id);
+    await checkAndUpdateLiveScores(user.id);
 
     // Devolver las apuestas actualizadas
     const bets = await db.bet.findMany({

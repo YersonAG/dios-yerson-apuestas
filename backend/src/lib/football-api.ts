@@ -230,3 +230,94 @@ export function evaluatePickResult(pick: string, homeScore: number, awayScore: n
 
   return 'won';
 }
+
+// ===== OBTENER SCORES EN VIVO =====
+export async function getLiveScores(matchIds: string[]): Promise<Map<string, { homeScore: number; awayScore: number; status: string; minute?: number }>> {
+  const scores = new Map<string, { homeScore: number; awayScore: number; status: string; minute?: number }>();
+  
+  if (matchIds.length === 0) return scores;
+
+  try {
+    const today = new Date();
+    const dates: string[] = [];
+    
+    // Ayer, hoy y mañana
+    for (let i = -1; i <= 1; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      dates.push(d.toISOString().split('T')[0].replace(/-/g, ''));
+    }
+
+    const requests: Promise<any>[] = [];
+
+    for (const league of ESPN_LEAGUES) {
+      for (const date of dates) {
+        requests.push(
+          fetch(`${ESPN_API}/${league.code}/scoreboard?dates=${date}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            signal: AbortSignal.timeout(8000)
+          })
+          .then(r => r.json())
+          .catch(() => ({}))
+        );
+      }
+    }
+
+    const responses = await Promise.all(requests);
+
+    for (const data of responses) {
+      const events = data.events || [];
+      
+      for (const event of events) {
+        const matchId = `espn_${event.id}`;
+        
+        // Solo procesar si está en nuestra lista
+        if (!matchIds.includes(matchId)) continue;
+
+        const competitors = event.competitions?.[0]?.competitors || [];
+        if (competitors.length < 2) continue;
+
+        const homeTeam = competitors.find((c: any) => c.homeAway === 'home');
+        const awayTeam = competitors.find((c: any) => c.homeAway === 'away');
+
+        const homeScore = parseInt(homeTeam?.score?.value || homeTeam?.score || '0') || 0;
+        const awayScore = parseInt(awayTeam?.score?.value || awayTeam?.score || '0') || 0;
+        
+        // Estado del partido
+        let status = 'scheduled';
+        let minute: number | undefined;
+        
+        const statusState = event.status?.type?.state;
+        const shortDetail = event.status?.type?.shortDetail || '';
+        
+        if (statusState === 'in') {
+          status = 'live';
+          // Intentar obtener el minuto
+          const minuteMatch = shortDetail.match(/(\d+)/);
+          if (minuteMatch) {
+            minute = parseInt(minuteMatch[1]);
+          }
+        } else if (statusState === 'post') {
+          status = 'finished';
+        } else if (event.status?.type?.completed) {
+          status = 'finished';
+        }
+
+        scores.set(matchId, { homeScore, awayScore, status, minute });
+      }
+    }
+
+    console.log(`📊 Scores en vivo obtenidos: ${scores.size} partidos`);
+    
+  } catch (error) {
+    console.error('Error obteniendo scores en vivo:', error);
+  }
+
+  return scores;
+}
+
+// ===== OBTENER SCORE DE UN PARTIDO ESPECÍFICO =====
+export async function getMatchLiveScore(matchId: string): Promise<{ homeScore: number; awayScore: number; status: string; minute?: number } | null> {
+  const scores = await getLiveScores([matchId]);
+  return scores.get(matchId) || null;
+}
