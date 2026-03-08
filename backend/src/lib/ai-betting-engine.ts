@@ -155,6 +155,55 @@ const LEAGUE_CODE_MAP: Record<string, string> = {
 };
 
 // ==========================================
+// MAPEO DE EQUIPOS A SU LIGA NACIONAL
+// Para Champions League, Europa League, etc.
+// ==========================================
+const TEAM_TO_NATIONAL_LEAGUE: Record<string, string> = {
+  // Inglaterra
+  'liverpool': 'eng.1', 'manchester city': 'eng.1', 'manchester united': 'eng.1',
+  'arsenal': 'eng.1', 'chelsea': 'eng.1', 'tottenham': 'eng.1',
+  'newcastle': 'eng.1', 'aston villa': 'eng.1', 'brighton': 'eng.1',
+  'west ham': 'eng.1', 'fulham': 'eng.1', 'bournemouth': 'eng.1',
+  'brentford': 'eng.1', 'crystal palace': 'eng.1', 'everton': 'eng.1',
+  'wolves': 'eng.1', 'nottingham forest': 'eng.1',
+  
+  // España
+  'real madrid': 'esp.1', 'barcelona': 'esp.1', 'atlético madrid': 'esp.1',
+  'atletico madrid': 'esp.1', 'villarreal': 'esp.1', 'real sociedad': 'esp.1',
+  'real betis': 'esp.1', 'athletic bilbao': 'esp.1', 'sevilla': 'esp.1',
+  'valencia': 'esp.1', 'girona': 'esp.1', 'osasuna': 'esp.1',
+  
+  // Italia
+  'inter milan': 'ita.1', 'inter': 'ita.1', 'ac milan': 'ita.1', 'milan': 'ita.1',
+  'napoli': 'ita.1', 'juventus': 'ita.1', 'roma': 'ita.1', 'lazio': 'ita.1',
+  'atalanta': 'ita.1', 'fiorentina': 'ita.1', 'bologna': 'ita.1',
+  
+  // Alemania
+  'bayern munich': 'ger.1', 'bayern': 'ger.1', 'borussia dortmund': 'ger.1',
+  'dortmund': 'ger.1', 'rb leipzig': 'ger.1', 'leipzig': 'ger.1',
+  'bayer leverkusen': 'ger.1', 'leverkusen': 'ger.1', 'union berlin': 'ger.1',
+  'freiburg': 'ger.1', 'stuttgart': 'ger.1', 'eintracht frankfurt': 'ger.1',
+  
+  // Francia
+  'psg': 'fra.1', 'paris saint-germain': 'fra.1', 'monaco': 'fra.1',
+  'marseille': 'fra.1', 'lille': 'fra.1', 'lyon': 'fra.1', 'nice': 'fra.1',
+  'lens': 'fra.1', 'rennes': 'fra.1',
+  
+  // Portugal
+  'benfica': 'por.1', 'porto': 'por.1', 'sporting cp': 'por.1', 'sporting': 'por.1',
+  'braga': 'por.1',
+  
+  // Holanda
+  'ajax': 'ned.1', 'psv': 'ned.1', 'feyenoord': 'ned.1', 'az alkmaar': 'ned.1',
+  
+  // Turquía
+  'galatasaray': 'tur.1', 'fenerbahce': 'tur.1', 'besiktas': 'tur.1',
+  
+  // Noruega
+  'bodo/glimt': 'nor.1', 'bodo glimt': 'nor.1',
+};
+
+// ==========================================
 // ESPN STANDINGS - OBTENER GOLES REALES
 // ==========================================
 async function getGoalsFromESPNStandings(leagueCode: string): Promise<Map<string, TeamGoals>> {
@@ -201,12 +250,12 @@ async function getGoalsFromESPNStandings(leagueCode: string): Promise<Map<string
         return stat?.value || 0;
       };
 
-      const goalsFor = getStat('pointsFor') || getStat('goalsFor') || getStat('goalsScored') || 0;
-      const goalsAgainst = getStat('pointsAgainst') || getStat('goalsAgainst') || getStat('goalsConceded') || 0;
-      const wins = getStat('wins') || 0;
-      const losses = getStat('losses') || 0;
-      const draws = getStat('ties') || getStat('draws') || 0;
-      const played = wins + draws + losses;
+      let goalsFor = getStat('pointsFor') || getStat('goalsFor') || getStat('goalsScored') || 0;
+      let goalsAgainst = getStat('pointsAgainst') || getStat('goalsAgainst') || getStat('goalsConceded') || 0;
+      let wins = getStat('wins') || 0;
+      let losses = getStat('losses') || 0;
+      let draws = getStat('ties') || getStat('draws') || 0;
+      let played = wins + draws + losses;
       const position = getStat('rank') || parseInt(entry.team?.rank || '0');
 
       if (teamName && (goalsFor > 0 || goalsAgainst > 0)) {
@@ -260,9 +309,20 @@ async function extractTeamStats(competitor: any, leagueCode?: string): Promise<T
 
   // Buscar goles reales
   let realGoals: TeamGoals | null = null;
-  if (leagueCode) {
-    const teamName = competitor.team?.displayName?.toLowerCase() || '';
-    const leagueGoals = await getGoalsFromESPNStandings(leagueCode);
+  const teamName = competitor.team?.displayName?.toLowerCase() || '';
+  
+  // Si es Champions League o Europa League, buscar en la liga nacional
+  let effectiveLeagueCode = leagueCode;
+  if (leagueCode && (leagueCode === 'uefa.champions' || leagueCode === 'uefa.europa')) {
+    const nationalLeague = TEAM_TO_NATIONAL_LEAGUE[teamName];
+    if (nationalLeague) {
+      console.log(`🌍 ${competitor.team?.displayName} → Buscando goles en liga nacional: ${nationalLeague}`);
+      effectiveLeagueCode = nationalLeague;
+    }
+  }
+  
+  if (effectiveLeagueCode) {
+    const leagueGoals = await getGoalsFromESPNStandings(effectiveLeagueCode);
     realGoals = leagueGoals.get(teamName) || null;
 
     if (!realGoals) {
@@ -284,10 +344,10 @@ async function extractTeamStats(competitor: any, leagueCode?: string): Promise<T
   const totalRecord = records.find((r: any) => r.type === 'total') || records[0] || {};
 
   const recordParts = (totalRecord.summary || '0-0-0').split('-').map((n: string) => parseInt(n) || 0);
-  const wins = recordParts[0] || 0;
-  const draws = recordParts[1] || 0;
-  const losses = recordParts[2] || 0;
-  const played = wins + draws + losses || 1;
+  let wins = recordParts[0] || 0;
+  let draws = recordParts[1] || 0;
+  let losses = recordParts[2] || 0;
+  let played = wins + draws + losses || 1;
 
   let goalsFor: number, goalsAgainst: number;
   if (realGoals && realGoals.goalsFor > 0) {
@@ -301,6 +361,14 @@ async function extractTeamStats(competitor: any, leagueCode?: string): Promise<T
       goalsFor = Math.round((winRate * 2 + 1) * played);
       goalsAgainst = Math.round(((1 - winRate) * 1.5 + 0.5) * played);
     }
+  }
+
+  // Usar played de realGoals si está disponible
+  if (realGoals && realGoals.played && realGoals.played > 0) {
+    played = realGoals.played;
+    wins = realGoals.wins || wins;
+    draws = realGoals.draws || draws;
+    losses = realGoals.losses || losses;
   }
 
   const position = realGoals?.position || getStat(stats, 'rank') || parseInt(competitor.curatedRank?.current || '0') || Math.round(20 - (wins / played) * 15);
@@ -355,6 +423,11 @@ function calcularPoisson(homeStats: TeamStats, awayStats: TeamStats): PoissonRes
     }
   }
 
+  
+  // Debug
+  console.log(`🔢 Poisson: lambdaHome=${lambdaHome.toFixed(2)}, lambdaAway=${lambdaAway.toFixed(2)}`);
+  console.log(`📊 BTTS=${(probBTTS*100).toFixed(1)}%, UNDER45=${(probUnder45*100).toFixed(1)}%, OVER15=${(probOver15*100).toFixed(1)}%`);
+  
   return { lambdaHome, lambdaAway, probHomeWin, probDraw, probAwayWin, probOver15, probOver25, probUnder25, probUnder35, probUnder45, probBTTS };
 }
 
