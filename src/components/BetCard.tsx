@@ -425,14 +425,22 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
                     <span className="text-gray-400 text-[10px] md:text-xs">@ {item.odds.toFixed(2)}</span>
                   </div>
                   
-                  {/* Marcador en vivo si está disponible */}
-                  {(status === 'live' || status === 'won' || status === 'lost') && 
-                   match.homeScore !== null && match.homeScore !== undefined && 
+                  {/* Marcador en vivo si está disponible - SIEMPRE mostrar si hay score */}
+                  {match.homeScore !== null && match.homeScore !== undefined && 
                    match.awayScore !== null && match.awayScore !== undefined && (
-                    <div className="bg-gray-900 px-2 md:px-3 py-0.5 md:py-1 rounded text-[11px] md:text-sm">
-                      <span className="text-white">{match.homeScore}</span>
-                      <span className="text-gray-400 mx-0.5 md:mx-1">-</span>
-                      <span className="text-white">{match.awayScore}</span>
+                    <div className={`px-2 md:px-3 py-0.5 md:py-1 rounded text-[11px] md:text-sm font-bold ${
+                      status === 'live' || status === 'winning' || status === 'losing' 
+                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' 
+                        : status === 'won' 
+                          ? 'bg-green-500/20 text-green-300' 
+                          : status === 'lost'
+                            ? 'bg-red-500/20 text-red-300'
+                            : 'bg-gray-900 text-white'
+                    }`}>
+                      {match.homeScore} <span className="text-gray-400 mx-0.5">-</span> {match.awayScore}
+                      {(status === 'live' || status === 'winning' || status === 'losing') && (
+                        <span className="ml-1 text-blue-400 animate-pulse">●</span>
+                      )}
                     </div>
                   )}
                 </div>

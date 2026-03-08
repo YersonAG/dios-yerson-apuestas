@@ -237,6 +237,8 @@ export async function getLiveScores(matchIds: string[]): Promise<Map<string, { h
   
   if (matchIds.length === 0) return scores;
 
+  console.log(`📊 Buscando scores para ${matchIds.length} partidos...`);
+
   try {
     const today = new Date();
     const dates: string[] = [];
@@ -297,17 +299,16 @@ export async function getLiveScores(matchIds: string[]): Promise<Map<string, { h
           if (minuteMatch) {
             minute = parseInt(minuteMatch[1]);
           }
-        } else if (statusState === 'post') {
-          status = 'finished';
-        } else if (event.status?.type?.completed) {
+        } else if (statusState === 'post' || event.status?.type?.completed) {
           status = 'finished';
         }
 
         scores.set(matchId, { homeScore, awayScore, status, minute });
+        console.log(`  ✓ ${matchId}: ${homeScore}-${awayScore} (${status})`);
       }
     }
 
-    console.log(`📊 Scores en vivo obtenidos: ${scores.size} partidos`);
+    console.log(`📊 Scores encontrados: ${scores.size} de ${matchIds.length} partidos`);
     
   } catch (error) {
     console.error('Error obteniendo scores en vivo:', error);
