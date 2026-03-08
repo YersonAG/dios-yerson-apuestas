@@ -15,12 +15,13 @@ import {
 
 const router = Router();
 
-// ===== FILTRAR PARTIDOS QUE AÚN NO HAN COMENZADO =====
+// ===== FILTRAR PARTIDOS QUE AÚN NO HAN TERMINADO =====
 function filterFutureMatches(matches: MatchForApp[]): MatchForApp[] {
   const now = new Date();
   return matches.filter(m => {
     const matchDate = new Date(m.matchDate);
-    return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
+    // Solo filtrar partidos que ya terminaron, NO los que están por empezar
+    return matchDate.getTime() + 3 * 60 * 60 * 1000 > now.getTime(); // +3 horas para partidos en vivo
   });
 }
 
