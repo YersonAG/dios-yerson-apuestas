@@ -58,6 +58,7 @@ export default function Home() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [stats, setStats] = useState({
     totalBets: 0,
+    activeBets: 0,
     wonBets: 0,
     lostBets: 0,
     winRate: 0,
@@ -138,7 +139,7 @@ export default function Home() {
     document.cookie = 'session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     setUser(null);
     setCombinadas([]);
-    setStats({ totalBets: 0, wonBets: 0, lostBets: 0, winRate: 0 });
+    setStats({ totalBets: 0, activeBets: 0, wonBets: 0, lostBets: 0, winRate: 0 });
   };
 
   const handleCombinadasGenerated = (newCombinadas: Combinada[]) => {
@@ -341,7 +342,12 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 py-1.5 md:py-2">
           <div className="flex items-center justify-center gap-3 md:gap-6 text-[10px] md:text-sm">
             <div className="flex items-center gap-1 md:gap-1.5">
-              <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500 animate-pulse" />
+              <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-blue-500 animate-pulse" />
+              <span className="text-gray-400">Activas:</span>
+              <span className="text-blue-400 font-bold">{stats.activeBets}</span>
+            </div>
+            <div className="flex items-center gap-1 md:gap-1.5">
+              <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500" />
               <span className="text-gray-400">Total:</span>
               <span className="text-white font-bold">{stats.totalBets}</span>
             </div>
@@ -370,6 +376,10 @@ export default function Home() {
       <div className="md:hidden bg-gray-900/50 border-b border-gray-800 px-2 py-1 sticky top-[48px] md:top-0 z-40">
         <div className="flex items-center justify-around text-[9px]">
           <div className="text-center px-1.5">
+            <div className="text-blue-400">Activas</div>
+            <div className="text-blue-400 font-bold text-xs">{stats.activeBets}</div>
+          </div>
+          <div className="text-center px-1.5 border-l border-gray-800">
             <div className="text-gray-500">Total</div>
             <div className="text-white font-bold text-xs">{stats.totalBets}</div>
           </div>

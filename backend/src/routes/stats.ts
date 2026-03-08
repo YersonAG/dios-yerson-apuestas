@@ -12,6 +12,7 @@ router.get('/', async (req: Request, res: Response) => {
     if (!user) {
       return res.json({
         totalBets: 0,
+        activeBets: 0,
         wonBets: 0,
         lostBets: 0,
         winRate: 0,
@@ -19,12 +20,15 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    const bets = await db.bet.findMany({ where: { userId: user.id } });
+    // Contar todas las apuestas por estado
+    const totalBets = await db.bet.count({ where: { userId: user.id } });
+    const activeBets = await db.bet.count({ where: { userId: user.id, status: 'active' } });
+    const wonBets = await db.bet.count({ where: { userId: user.id, status: 'won' } });
+    const lostBets = await db.bet.count({ where: { userId: user.id, status: 'lost' } });
     
-    const totalBets = bets.length;
-    const wonBets = bets.filter(b => b.status === 'won').length;
-    const lostBets = bets.filter(b => b.status === 'lost').length;
-    const winRate = totalBets > 0 ? wonBets / totalBets : 0;
+    // Calcular win rate solo de apuestas completadas
+    const completedBets = wonBets + lostBets;
+    const winRate = completedBets > 0 ? wonBets / completedBets : 0;
 
     const learningData = await db.learningData.findMany({
       orderBy: { successRate: 'desc' },
@@ -41,6 +45,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     return res.json({
       totalBets,
+      activeBets,
       wonBets,
       lostBets,
       winRate,
@@ -50,6 +55,7 @@ router.get('/', async (req: Request, res: Response) => {
     console.error('Error fetching stats:', error);
     return res.status(500).json({
       totalBets: 0,
+      activeBets: 0,
       wonBets: 0,
       lostBets: 0,
       winRate: 0,
