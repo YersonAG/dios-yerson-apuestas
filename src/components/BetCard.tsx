@@ -14,7 +14,9 @@ import {
   CheckCircle,
   XCircle,
   Plus,
-  Circle
+  Circle,
+  Loader2,
+  Trash2
 } from 'lucide-react';
 
 interface Pick {
@@ -184,9 +186,11 @@ interface ActiveBetCardProps {
     createdAt: string;
     items: BetItem[];
   };
+  onDelete?: (betId: string) => void;
+  isDeleting?: boolean;
 }
 
-export function ActiveBetCard({ bet }: ActiveBetCardProps) {
+export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps) {
   const totalOdds = bet.items.reduce((acc, item) => acc * item.odds, 1);
 
   // Función para determinar si un pick está ganando en vivo
@@ -317,13 +321,30 @@ export function ActiveBetCard({ bet }: ActiveBetCardProps) {
   };
 
   return (
-    <Card className={`bg-gradient-to-br from-gray-900 to-black border ${
-      bet.status === 'won' 
-        ? 'border-green-500/50 ring-2 ring-green-500/30' 
-        : bet.status === 'lost'
-          ? 'border-red-500/50 ring-2 ring-red-500/30'
-          : 'border-green-500/20'
-    }`}>
+    <div className="flex gap-2 items-start">
+      {/* Botón de eliminar al lado izquierdo */}
+      {onDelete && (
+        <button
+          onClick={() => onDelete(bet.id)}
+          disabled={isDeleting}
+          className="mt-3 md:mt-4 p-1.5 md:p-2 rounded-lg bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-all border border-red-500/30 hover:border-red-500/50 shrink-0 self-start"
+          title="Eliminar apuesta"
+        >
+          {isDeleting ? (
+            <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin" />
+          ) : (
+            <Trash2 className="w-3.5 h-3.5 md:w-4 md:h-4" />
+          )}
+        </button>
+      )}
+      
+      <Card className={`flex-1 bg-gradient-to-br from-gray-900 to-black border ${
+        bet.status === 'won' 
+          ? 'border-green-500/50 ring-2 ring-green-500/30' 
+          : bet.status === 'lost'
+            ? 'border-red-500/50 ring-2 ring-red-500/30'
+            : 'border-green-500/20'
+      }`}>
       <CardHeader className="pb-1.5 md:pb-2 p-3 md:p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 md:gap-2">
@@ -444,5 +465,6 @@ export function ActiveBetCard({ bet }: ActiveBetCardProps) {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }

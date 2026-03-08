@@ -44,6 +44,21 @@ interface ChatProps {
 const formatColombianDate = (dateStr: string) => {
   try {
     const date = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // Comparar solo fechas (sin hora)
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const tomorrowOnly = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate());
+    
+    if (dateOnly.getTime() === todayOnly.getTime()) {
+      return 'HOY';
+    } else if (dateOnly.getTime() === tomorrowOnly.getTime()) {
+      return 'MAÑANA';
+    }
+    
     return date.toLocaleDateString('es-CO', { 
       day: 'numeric', 
       month: 'short',
@@ -326,16 +341,27 @@ Escribe **"ver partidos"** para ver los partidos.
                       <p className="text-[10px] md:text-sm text-green-400 font-medium">
                         📋 {message.matches.length} partidos:
                       </p>
-                      {selectedMatchIds.size > 0 && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={clearSelection}
-                          className="text-gray-400 hover:text-white h-6 text-[10px] px-2"
-                        >
-                          Limpiar
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {selectedMatchIds.size > 0 && (
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[10px] md:text-xs font-bold px-2 py-0.5 rounded-full ${
+                              selectedMatchIds.size >= 20 
+                                ? 'bg-red-500/20 text-red-400 border border-red-500/50' 
+                                : 'bg-green-500/20 text-green-400 border border-green-500/50'
+                            }`}>
+                              {selectedMatchIds.size}/20 picks
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={clearSelection}
+                              className="text-gray-400 hover:text-white h-6 text-[10px] px-2"
+                            >
+                              Limpiar
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-1 md:space-y-1.5 max-h-40 md:max-h-52 overflow-y-auto pr-1">
                       {message.matches.map((match) => {
@@ -365,7 +391,13 @@ Escribe **"ver partidos"** para ver los partidos.
                                   <MapPin className="w-2.5 h-2.5 text-green-500 shrink-0" /> 
                                   <span className="truncate">{match.league}</span>
                                 </span>
-                                <span className="flex items-center gap-0.5 shrink-0">
+                                <span className={`flex items-center gap-0.5 shrink-0 font-medium ${
+                                  formatColombianDate(match.matchDate) === 'HOY' 
+                                    ? 'text-green-400' 
+                                    : formatColombianDate(match.matchDate) === 'MAÑANA' 
+                                      ? 'text-yellow-400' 
+                                      : ''
+                                }`}>
                                   <Calendar className="w-2.5 h-2.5 text-blue-400" /> 
                                   {formatColombianDate(match.matchDate)}
                                 </span>
@@ -386,6 +418,15 @@ Escribe **"ver partidos"** para ver los partidos.
                     {/* Botón confirmar */}
                     {selectedMatchIds.size > 0 && (
                       <div className="mt-2 pt-2 border-t border-gray-700">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <span className={`text-[10px] md:text-xs font-bold px-3 py-1 rounded-full ${
+                            selectedMatchIds.size >= 20 
+                              ? 'bg-red-500/20 text-red-400 border border-red-500/50' 
+                              : 'bg-green-500/20 text-green-400 border border-green-500/50'
+                          }`}>
+                            🎯 {selectedMatchIds.size}/20 picks seleccionados
+                          </span>
+                        </div>
                         <Button
                           onClick={handleConfirmSelection}
                           disabled={isLoading}

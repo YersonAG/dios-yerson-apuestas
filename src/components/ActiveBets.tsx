@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Trophy, Clock, RefreshCw } from 'lucide-react';
+import { Trophy, Clock, RefreshCw, Trash2 } from 'lucide-react';
 import { ActiveBetCard } from './BetCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +40,7 @@ export function ActiveBets() {
   const [bets, setBets] = useState<Bet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [deletingBetId, setDeletingBetId] = useState<string | null>(null);
 
   const getSessionToken = () => {
     if (typeof window === 'undefined') return null;
@@ -111,6 +112,31 @@ export function ActiveBets() {
   };
 
   const stats = getPicksStats();
+
+  const handleDeleteBet = async (betId: string) => {
+    const token = getSessionToken();
+    if (!token) return;
+
+    setDeletingBetId(betId);
+    try {
+      const response = await fetch(`${API_URL}/api/bets/${betId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setBets(prev => prev.filter(bet => bet.id !== betId));
+      }
+    } catch (error) {
+      console.error('Error eliminando apuesta:', error);
+    } finally {
+      setDeletingBetId(null);
+    }
+  };
 
   return (
     <Card className="bg-gradient-to-br from-gray-900 to-black border border-green-500/20 h-full">
@@ -189,6 +215,8 @@ export function ActiveBets() {
                 <ActiveBetCard
                   key={bet.id}
                   bet={bet}
+                  onDelete={handleDeleteBet}
+                  isDeleting={deletingBetId === bet.id}
                 />
               ))}
             </div>
