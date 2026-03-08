@@ -1,6 +1,7 @@
 // Motor de Apuestas - El Dios Yerson
-// Motor Matemático v5.2 - Poisson + Elo + ESPN + Goles Reales de Competición
+// Motor Matemático v5.3 - Poisson + Elo + ESPN Standings (Champions League 2025-26)
 // FILOSOFÍA: No buscamos el pick más rentable, buscamos el más SEGURO.
+// ACTUALIZACIÓN: Champions League ahora usa standings oficiales de ESPN
 
 import { MatchForApp } from './football-api';
 
@@ -160,12 +161,16 @@ const LEAGUE_CODE_MAP: Record<string, string> = {
 
 // ==========================================
 // COMPETICIONES INTERNACIONALES
-// Estas competiciones usan historial de partidos en lugar de standings
+// Ahora usan ESPN Standings oficial (Champions League 2025-26 tiene standings)
+// Solo se usa historial de partidos como fallback
 // ==========================================
-const COMPETITION_HISTORY_LEAGUES = [
+const COMPETITION_STANDINGS_SUPPORTED = [
   'uefa.champions',
   'uefa.europa',
   'uefa.conference',
+];
+
+const COMPETITION_HISTORY_LEAGUES = [
   'conmebol.libertadores',
   'conmebol.sudamericana',
 ];
@@ -433,61 +438,7 @@ async function extractTeamStats(
     }
   }
 
-  // Nivel 2 — Si es competición internacional, obtener goles del historial de ESA competición
-  if (leagueCode && COMPETITION_HISTORY_LEAGUES.includes(leagueCode)) {
-    console.log(`🌍 ${competitor.team?.displayName} está en competición internacional: ${leagueCode}`);
-
-    const historyGoals = await getGoalsFromCompetitionHistory(leagueCode);
-    let teamHistory = historyGoals.get(teamName);
-
-    // Búsqueda fuzzy
-    if (!teamHistory) {
-      for (const [name, data] of Array.from(historyGoals.entries())) {
-        if (name.includes(teamName) || teamName.includes(name)) {
-          const found = historyGoals.get(name);
-          if (found) {
-            teamHistory = found;
-            break;
-          }
-        }
-      }
-    }
-
-    if (teamHistory && teamHistory.played && teamHistory.played >= 3) {
-      // Tiene suficientes partidos en la competición
-      console.log(`✅ ${competitor.team?.displayName}: ${teamHistory.played} partidos en ${leagueCode} — GF ${teamHistory.goalsFor}, GA ${teamHistory.goalsAgainst}`);
-
-      let form: string[] = [];
-      if (competitor.form && typeof competitor.form === 'string') {
-        form = competitor.form.toUpperCase().split('').slice(-5);
-      }
-      const formScore = form.length > 0
-        ? form.reduce((acc: number, r: string) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) / 15
-        : 0.5;
-
-      return {
-        teamId,
-        name: competitor.team?.displayName || 'Desconocido',
-        position: 10, // No hay posición en competiciones internacionales
-        played: teamHistory.played,
-        wins: teamHistory.wins || 0,
-        draws: teamHistory.draws || 0,
-        losses: teamHistory.losses || 0,
-        goalsFor: teamHistory.goalsFor,
-        goalsAgainst: teamHistory.goalsAgainst,
-        avgGoalsFor: teamHistory.goalsFor / teamHistory.played,
-        avgGoalsAgainst: teamHistory.goalsAgainst / teamHistory.played,
-        form,
-        formScore,
-      };
-    }
-
-    // Pocos partidos en la competición → no es estadísticamente válido
-    console.log(`⚠️ ${competitor.team?.displayName}: solo ${teamHistory?.played || 0} partidos en ${leagueCode} — PARTIDO OMITIDO`);
-    return null;
-  }
-
-  // Nivel 3 — Liga nacional: usar ESPN Standings
+  // Nivel 2 — Intentar ESPN Standings (ahora funciona para Champions League 2025-26 y otras)
   if (leagueCode) {
     const leagueGoals = await getGoalsFromESPNStandings(leagueCode);
     let realGoals = leagueGoals.get(teamName) || null;
@@ -503,7 +454,8 @@ async function extractTeamStats(
     }
 
     if (realGoals && (realGoals.goalsFor > 0 || realGoals.goalsAgainst > 0)) {
-      console.log(`✅ Goles REALES para ${competitor.team?.displayName}: GF ${realGoals.goalsFor}, GA ${realGoals.goalsAgainst} en ${leagueCode}`);
+      const competitionType = COMPETITION_STANDINGS_SUPPORTED.includes(leagueCode) ? 'internacional' : 'liga nacional';
+      console.log(`✅ Goles REALES para ${competitor.team?.displayName}: GF ${realGoals.goalsFor}, GA ${realGoals.goalsAgainst} en ${leagueCode} (${competitionType})`);
 
       const records = competitor.records || [];
       const totalRecord = records.find((r: any) => r.type === 'total') || records[0] || {};
@@ -535,6 +487,58 @@ async function extractTeamStats(
         formScore,
       };
     }
+  }
+
+  // Nivel 3 — Fallback: Historial de partidos para competiciones sin standings (Libertadores, Sudamericana)
+  if (leagueCode && COMPETITION_HISTORY_LEAGUES.includes(leagueCode)) {
+    console.log(`🌍 ${competitor.team?.displayName} - Intentando historial de partidos para ${leagueCode}`);
+
+    const historyGoals = await getGoalsFromCompetitionHistory(leagueCode);
+    let teamHistory = historyGoals.get(teamName);
+
+    // Búsqueda fuzzy
+    if (!teamHistory) {
+      for (const [name, data] of Array.from(historyGoals.entries())) {
+        if (name.includes(teamName) || teamName.includes(name)) {
+          const found = historyGoals.get(name);
+          if (found) {
+            teamHistory = found;
+            break;
+          }
+        }
+      }
+    }
+
+    if (teamHistory && teamHistory.played && teamHistory.played >= 3) {
+      console.log(`✅ ${competitor.team?.displayName}: ${teamHistory.played} partidos en ${leagueCode} — GF ${teamHistory.goalsFor}, GA ${teamHistory.goalsAgainst}`);
+
+      let form: string[] = [];
+      if (competitor.form && typeof competitor.form === 'string') {
+        form = competitor.form.toUpperCase().split('').slice(-5);
+      }
+      const formScore = form.length > 0
+        ? form.reduce((acc: number, r: string) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) / 15
+        : 0.5;
+
+      return {
+        teamId,
+        name: competitor.team?.displayName || 'Desconocido',
+        position: 10,
+        played: teamHistory.played,
+        wins: teamHistory.wins || 0,
+        draws: teamHistory.draws || 0,
+        losses: teamHistory.losses || 0,
+        goalsFor: teamHistory.goalsFor,
+        goalsAgainst: teamHistory.goalsAgainst,
+        avgGoalsFor: teamHistory.goalsFor / teamHistory.played,
+        avgGoalsAgainst: teamHistory.goalsAgainst / teamHistory.played,
+        form,
+        formScore,
+      };
+    }
+
+    console.log(`⚠️ ${competitor.team?.displayName}: solo ${teamHistory?.played || 0} partidos en ${leagueCode} — PARTIDO OMITIDO`);
+    return null;
   }
 
   // Sin datos reales → no analizar
@@ -739,7 +743,7 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
     matchId: match.id, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
     league: match.league, matchDate: match.matchDate, pick: bestPick,
     safePicks, allOptions: options, riskLevel,
-    modelVersion: 'poisson-elo-v5.2-espn-competition',
+    modelVersion: 'poisson-elo-v5.3-espn-standings-champions',
   };
 }
 
