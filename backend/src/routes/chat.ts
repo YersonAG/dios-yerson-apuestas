@@ -1,38 +1,73 @@
 // Rutas de Chat - El Dios Yerson
-// Simplificado para mayor robustez
+// Motor v5.0 PRO - Poisson + ELO + ESPN + Goles Reales
 
 import { Router, Request, Response } from 'express';
 import { db } from '../lib/db';
 import { getCurrentUser } from './auth';
 import { getUpcomingMatches, MatchForApp } from '../lib/football-api';
+import {
+  generateCombinadaFromMatchesAsync,
+  analyzeMatchAsync,
+  analyzeMatches,
+  MatchPick,
+  Combinada,
+} from '../lib/ai-betting-engine';
 
 const router = Router();
 
-// ===== GENERADOR DE PICKS DE BAJO RIESGO =====
-function generateLowRiskPick(match: MatchForApp): { pick: string; odds: number; probability: number } {
-  // Generar picks de bajo riesgo que el sistema puede evaluar
-  const picks = [
-    { pick: 'Doble oportunidad 1X', odds: 1.35, probability: 0.74 },
-    { pick: 'Doble oportunidad X2', odds: 1.40, probability: 0.71 },
-    { pick: 'Más de 1.5 goles', odds: 1.25, probability: 0.80 },
-    { pick: 'Menos de 4.5 goles', odds: 1.15, probability: 0.87 },
-    { pick: 'Doble oportunidad 1X', odds: 1.30, probability: 0.77 },
-    { pick: 'Más de 0.5 goles', odds: 1.10, probability: 0.91 },
-    { pick: 'Menos de 3.5 goles', odds: 1.20, probability: 0.83 },
-    { pick: 'Doble oportunidad X2', odds: 1.38, probability: 0.72 },
-  ];
-  
-  // Seleccionar pick basado en hash del ID para consistencia
-  const hash = match.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  return picks[hash % picks.length];
+// ===== FILTRAR PARTIDOS QUE AÚN NO HAN COMENZADO =====
+function filterFutureMatches(matches: MatchForApp[]): MatchForApp[] {
+  const now = new Date();
+  return matches.filter(m => {
+    const matchDate = new Date(m.matchDate);
+    return matchDate.getTime() > now.getTime() + 30 * 60 * 1000;
+  });
 }
 
-// ===== ENDPOINT GET (para probar) =====
+// ===== FORMATEAR RESPUESTA =====
+function formatCombinadaResponse(combinada: Combinada, title: string): string {
+  let response = `🎰 **${title}**\n\n`;
+  response += `📊 **Score: ${combinada.score}/100**\n`;
+  response += `🎲 Probabilidad: **${(combinada.totalProbability * 100).toFixed(0)}%**\n`;
+  response += `💰 Cuota total: **${combinada.totalOdds.toFixed(2)}**\n`;
+  response += `📍 ${combinada.picks.length} picks\n\n`;
+  response += `---\n\n`;
+
+  combinada.picks.forEach((pick, i) => {
+    const date = new Date(pick.matchDate);
+    const dateStr = date.toLocaleDateString('es-CO', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      timeZone: 'America/Bogota'
+    });
+
+    response += `**${i + 1}. ${pick.homeTeam} vs ${pick.awayTeam}**\n`;
+    response += `📍 ${pick.league} | 📅 ${dateStr}\n`;
+    response += `✅ **${pick.pick}** @ ${pick.odds.toFixed(2)}\n`;
+    response += `📊 Score: **${pick.score}/100**\n`;
+    response += `📉 Riesgo: ${pick.volatility < 30 ? '🟢 BAJO' : pick.volatility < 50 ? '🟡 MEDIO' : '🔴 ALTO'}\n`;
+    if (pick.safePicks && pick.safePicks.length > 1) {
+      response += `💡 Otros picks: ${pick.safePicks.slice(0, 3).join(' | ')}\n`;
+    }
+    response += `\n`;
+  });
+
+  response += `---\n\n🟢 **MOTOR v5.0** - Poisson + ELO + ESPN + Goles Reales\n\n*Agradece al Dios Yerson.* 🙏`;
+  return response;
+}
+
+// ===== ENDPOINT GET =====
 router.get('/', async (req: Request, res: Response) => {
-  res.json({ 
+  res.json({
     status: 'ok',
-    message: 'Endpoint de chat activo. Usa POST para enviar mensajes.',
-    hint: 'POST {"message": "ver partidos"}'
+    message: 'Motor v5.0 PRO - Poisson + ELO + ESPN + Goles Reales',
+    version: '5.0.0',
+    features: [
+      'ESPN Data Collection',
+      'Poisson Distribution',
+      'ELO Rating',
+      'Goles REALES de ESPN Standings v2',
+      'Picks variados y seguros'
+    ]
   });
 });
 
@@ -40,9 +75,9 @@ router.get('/', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { message, selectedMatches: selectedMatchesData } = req.body;
-    
+
     console.log('📩 Chat recibido:', message?.substring(0, 50));
-    
+
     if (!message) {
       return res.status(400).json({ error: 'Mensaje requerido' });
     }
@@ -51,141 +86,82 @@ router.post('/', async (req: Request, res: Response) => {
     const lowerMessage = message.toLowerCase().trim();
 
     // ========== VER PARTIDOS ==========
-    if (lowerMessage.includes('ver partido') || 
-        lowerMessage.includes('partidos disponible') ||
-        lowerMessage.includes('partidos') ||
-        lowerMessage.includes('ver') ||
-        lowerMessage.includes('lista')) {
-      
+    if (lowerMessage.includes('ver partido') || lowerMessage.includes('partidos') || lowerMessage.includes('ver') || lowerMessage.includes('lista')) {
       console.log('📋 Obteniendo partidos...');
-      
-      const matches = await getUpcomingMatches(30);
-      
+      let matches = await getUpcomingMatches(14);
+      matches = filterFutureMatches(matches);
+
       console.log(`✅ Enviando ${matches.length} partidos`);
-      
+
       return res.json({
         success: true,
         type: 'showing_matches',
-        message: `📋 **PARTIDOS DISPONIBLES**\n\nHe encontrado ${matches.length} partidos para los próximos 30 días.\n\nSelecciona los que quieras incluir en tu combinada:`,
+        message: `📋 **PARTIDOS DISPONIBLES**\n\n🗓️ Total: ${matches.length} partidos próximos\n\n⏰ Horario Colombia (UTC-5)\n\nSelecciona los partidos para tu combinada:`,
         availableMatches: matches,
       });
     }
 
-    // ========== GENERAR COMBINADA ==========
+    // ========== GENERAR COMBINADA CON PARTIDOS SELECCIONADOS ==========
     if (selectedMatchesData && Array.isArray(selectedMatchesData) && selectedMatchesData.length > 0) {
-      console.log(`🎯 Generando combinada con ${selectedMatchesData.length} partidos`);
-      
-      const picks = selectedMatchesData.map((match: MatchForApp, index: number) => {
-        const pick = generateLowRiskPick(match);
-        return {
-          matchId: match.id,
-          homeTeam: match.homeTeam,
-          awayTeam: match.awayTeam,
-          league: match.league,
-          matchDate: match.matchDate,
-          pick: pick.pick,
-          odds: pick.odds,
-          probability: pick.probability,
-          status: 'pending',
-        };
-      });
-      
-      const totalOdds = Math.round(picks.reduce((acc: number, p: any) => acc * p.odds, 1) * 100) / 100;
-      const totalProbability = Math.round(picks.reduce((acc: number, p: any) => acc * p.probability, 1) * 1000) / 1000;
-      
-      const combinada = {
-        id: `comb_${Date.now()}`,
-        picks,
-        totalOdds,
-        totalProbability,
-        risk: 'low' as const,
-        status: 'pending' as const,
-      };
-      
-      let response = `🎰 **COMBINADA GENERADA**\n\n`;
-      response += `📊 Probabilidad: **${(totalProbability * 100).toFixed(0)}%**\n`;
-      response += `💰 Cuota total: **${totalOdds.toFixed(2)}**\n\n`;
-      response += `---\n\n`;
-      
-      picks.forEach((pick: any, i: number) => {
-        const date = new Date(pick.matchDate);
-        const dateStr = date.toLocaleDateString('es-CO', { 
-          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-          timeZone: 'America/Bogota'
+      console.log(`🎯 Generando combinada con ${selectedMatchesData.length} partidos SELECCIONADOS`);
+      const matchesToUse = selectedMatchesData.slice(0, 20) as MatchForApp[];
+      const combinada = await generateCombinadaFromMatchesAsync(matchesToUse);
+
+      if (combinada.picks.length === 0) {
+        return res.json({
+          success: false,
+          type: 'error',
+          message: `❌ No se encontraron picks de bajo riesgo (Score >= 65).\n\nLos partidos seleccionados no cumplen con los criterios del motor v5.0.`,
         });
-        response += `**${i + 1}. ${pick.homeTeam} vs ${pick.awayTeam}**\n`;
-        response += `📍 ${pick.league} | 📅 ${dateStr}\n`;
-        response += `✅ **${pick.pick}** @ ${pick.odds.toFixed(2)}\n\n`;
-      });
-      
-      response += `---\n\n🟢 **BAJO RIESGO**\n\n*Agradece al Dios Yerson.* 🙏`;
-      
-      return res.json({
-        success: true,
-        type: 'combinadas',
-        message: response,
-        combinadas: [combinada],
-        canTake: !!user,
-      });
+      }
+
+      const response = formatCombinadaResponse(combinada, 'COMBINADA PERSONALIZADA');
+      return res.json({ success: true, type: 'combinadas', message: response, combinadas: [combinada], canTake: !!user });
     }
 
-    // ========== GENERAR AUTOMÁTICO ==========
+    // ========== AUTOMÁTICO ==========
     if (lowerMessage.includes('automátic') || lowerMessage.includes('automatico') || lowerMessage.includes('auto')) {
-      const matches = await getUpcomingMatches(30);
-      const selectedMatches = matches.slice(0, 5); // Tomar 5 partidos
-      
-      const picks = selectedMatches.map((match) => {
-        const pick = generateLowRiskPick(match);
-        return {
-          matchId: match.id,
-          homeTeam: match.homeTeam,
-          awayTeam: match.awayTeam,
-          league: match.league,
-          matchDate: match.matchDate,
-          pick: pick.pick,
-          odds: pick.odds,
-          probability: pick.probability,
-          status: 'pending',
-        };
-      });
-      
-      const totalOdds = Math.round(picks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
-      const totalProbability = Math.round(picks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
-      
-      const combinada = {
-        id: `comb_auto_${Date.now()}`,
-        picks,
-        totalOdds,
-        totalProbability,
-        risk: 'low' as const,
-        status: 'pending' as const,
-      };
-      
-      let response = `🎰 **COMBINADA AUTOMÁTICA**\n\n`;
-      response += `📊 Probabilidad: **${(totalProbability * 100).toFixed(0)}%**\n`;
-      response += `💰 Cuota total: **${totalOdds.toFixed(2)}**\n\n`;
-      response += `---\n\n`;
-      
-      picks.forEach((pick, i) => {
-        const date = new Date(pick.matchDate);
-        const dateStr = date.toLocaleDateString('es-CO', { 
-          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-          timeZone: 'America/Bogota'
-        });
-        response += `**${i + 1}. ${pick.homeTeam} vs ${pick.awayTeam}**\n`;
-        response += `📍 ${pick.league} | 📅 ${dateStr}\n`;
-        response += `✅ **${pick.pick}** @ ${pick.odds.toFixed(2)}\n\n`;
-      });
-      
-      response += `---\n\n🟢 **BAJO RIESGO**\n\n*Agradece al Dios Yerson.* 🙏`;
-      
-      return res.json({
-        success: true,
-        type: 'combinadas',
-        message: response,
-        combinadas: [combinada],
-        canTake: !!user,
-      });
+      let matches = await getUpcomingMatches(14);
+      matches = filterFutureMatches(matches);
+
+      if (matches.length === 0) {
+        return res.json({ success: false, type: 'error', message: `❌ No hay partidos disponibles.` });
+      }
+
+      const selectedMatches = matches.slice(0, Math.min(5, matches.length));
+      const combinada = await generateCombinadaFromMatchesAsync(selectedMatches);
+      const response = formatCombinadaResponse(combinada, '🤖 COMBINADA AUTOMÁTICA');
+      return res.json({ success: true, type: 'combinadas', message: response, combinadas: [combinada], canTake: !!user });
+    }
+
+    // ========== SOÑADORA 12 ==========
+    if (lowerMessage.includes('soñadora 12') || lowerMessage.includes('sonadora 12')) {
+      let matches = await getUpcomingMatches(14);
+      matches = filterFutureMatches(matches);
+
+      if (matches.length < 12) {
+        return res.json({ success: false, type: 'error', message: `❌ No hay suficientes partidos (${matches.length}/12).` });
+      }
+
+      const selectedMatches = matches.slice(0, 12);
+      const combinada = await generateCombinadaFromMatchesAsync(selectedMatches);
+      const response = formatCombinadaResponse(combinada, '🌙 SOÑADORA 12');
+      return res.json({ success: true, type: 'combinadas', message: response, combinadas: [combinada], canTake: !!user });
+    }
+
+    // ========== SOÑADORA 20 ==========
+    if (lowerMessage.includes('soñadora 20') || lowerMessage.includes('sonadora 20')) {
+      let matches = await getUpcomingMatches(14);
+      matches = filterFutureMatches(matches);
+
+      if (matches.length < 20) {
+        return res.json({ success: false, type: 'error', message: `❌ No hay suficientes partidos (${matches.length}/20).` });
+      }
+
+      const selectedMatches = matches.slice(0, 20);
+      const combinada = await generateCombinadaFromMatchesAsync(selectedMatches);
+      const response = formatCombinadaResponse(combinada, '🌙 SOÑADORA 20');
+      return res.json({ success: true, type: 'combinadas', message: response, combinadas: [combinada], canTake: !!user });
     }
 
     // ========== SALUDO ==========
@@ -193,7 +169,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         type: 'greeting',
-        message: `${user?.username || 'Mi socio'}, ¡hola mi ludopana favorito! 🎰\n\n¿En qué partidos le vas a encomendar tu dinero al El Dios Yerson?\n\nEscribe **"ver partidos"** para ver los partidos disponibles.\n\n*Agradece al Dios Yerson.* 🙏`,
+        message: `${user?.username || 'Mi socio'}, ¡hola! 🎰\n\nMotor **v5.0 PRO** activo:\n• Poisson Distribution\n• ELO Rating\n• Goles REALES de ESPN\n\nEscribe **"ver partidos"** para ver los partidos.\n\nO usa:\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n\n*Agradece al Dios Yerson.* 🙏`,
       });
     }
 
@@ -202,7 +178,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         type: 'help',
-        message: `📖 **CÓMO FUNCIONA**\n\n**1.** Escribe **"ver partidos"** para ver partidos de los próximos 30 días\n\n**2.** Selecciona los partidos que quieras\n\n**3.** Presiona **"Generar picks"** para obtener apuestas de bajo riesgo\n\n**4.** Presiona **"Tomar Apuesta"** para guardarla\n\n---\n💡 También puedes escribir **"automático"** para generar una combinada rápidamente\n\n🟢 Solo apuestas de **BAJO RIESGO**`,
+        message: `📖 **CÓMO FUNCIONA - Motor v5.0**\n\n**1.** Escribe **"ver partidos"**\n**2.** Selecciona hasta **20 partidos**\n**3.** Presiona **"Generar picks"**\n\n---\n\n**🤖 AUTOMÁTICOS:**\n• **"automático"** - 5 picks\n• **"soñadora 12"** - 12 picks\n• **"soñadora 20"** - 20 picks\n\n**📊 MOTOR:**\n• Poisson Distribution\n• ELO Rating\n• Goles REALES de ESPN Standings\n\n🟢 Solo apuestas de **BAJO RIESGO** (Score >= 65)\n\n⏰ Horarios en hora Colombia (UTC-5)`,
       });
     }
 
@@ -210,12 +186,12 @@ router.post('/', async (req: Request, res: Response) => {
     return res.json({
       success: true,
       type: 'unknown',
-      message: `No entendí, mi socio. 🤔\n\n¿Quieres ver los partidos?\n• Escribe **"ver partidos"**\n• O escribe **"automático"**\n\n*Agradece al Dios Yerson.* 🙏`,
+      message: `No entendí, mi socio. 🤔\n\n¿Quieres ver los partidos?\n• Escribe **"ver partidos"**\n• O **"automático"** para 5 picks\n\n*Agradece al Dios Yerson.* 🙏`,
     });
-    
+
   } catch (error) {
     console.error('❌ Error en chat:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
       error: 'Error procesando. Intenta de nuevo.',
       details: error instanceof Error ? error.message : 'Error desconocido'
@@ -238,10 +214,9 @@ router.post('/take', async (req: Request, res: Response) => {
 
     console.log(`📤 Usuario ${user.username} tomando apuesta`);
 
-    // Crear partidos en BD
     const matchPromises = combinada.picks.map(async (pick: any) => {
       const matchId = pick.matchId || `match_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      
+
       const existing = await db.match.findUnique({ where: { id: matchId } });
       if (!existing) {
         await db.match.create({
@@ -259,10 +234,9 @@ router.post('/take', async (req: Request, res: Response) => {
       }
       return matchId;
     });
-    
+
     const matchIds = await Promise.all(matchPromises);
 
-    // Crear la apuesta
     const bet = await db.bet.create({
       data: {
         userId: user.id,

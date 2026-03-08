@@ -1,82 +1,75 @@
-// Sistema de IA para Apuestas Deportivas - El Dios Yerson
-// REGLA PRINCIPAL: SOLO APUESTAS DE BAJO RIESGO
+// Motor de Apuestas - El Dios Yerson
+// Motor Matemático v5.0 - Poisson + Elo + ESPN Standings
+// FILOSOFÍA: No buscamos el pick más rentable, buscamos el más SEGURO.
+
+import { MatchForApp } from './football-api';
 
 // ==========================================
-// DATOS DE EQUIPOS Y LIGAS
+// TIPOS
 // ==========================================
-const TEAMS_BY_LEAGUE: Record<string, { 
-  name: string; 
-  strength: number; 
-  form: string; 
-  goalsAvg: number;
-  goalsConceded: number;
-  xG: number;
-  homeWinRate: number;
-  awayWinRate: number;
-}[]> = {
-  "Premier League": [
-    { name: "Manchester City", strength: 95, form: "WWWDW", goalsAvg: 2.7, goalsConceded: 0.9, xG: 2.5, homeWinRate: 0.85, awayWinRate: 0.75 },
-    { name: "Arsenal", strength: 90, form: "WDWWW", goalsAvg: 2.4, goalsConceded: 1.0, xG: 2.2, homeWinRate: 0.82, awayWinRate: 0.70 },
-    { name: "Liverpool", strength: 92, form: "WWDWW", goalsAvg: 2.5, goalsConceded: 1.1, xG: 2.3, homeWinRate: 0.80, awayWinRate: 0.72 },
-    { name: "Manchester United", strength: 82, form: "WLWDL", goalsAvg: 1.8, goalsConceded: 1.3, xG: 1.7, homeWinRate: 0.65, awayWinRate: 0.50 },
-    { name: "Chelsea", strength: 80, form: "WDWDL", goalsAvg: 1.7, goalsConceded: 1.2, xG: 1.6, homeWinRate: 0.62, awayWinRate: 0.48 },
-    { name: "Tottenham", strength: 78, form: "LWWDL", goalsAvg: 1.9, goalsConceded: 1.4, xG: 1.8, homeWinRate: 0.60, awayWinRate: 0.45 },
-    { name: "Newcastle", strength: 75, form: "WDWDW", goalsAvg: 1.6, goalsConceded: 1.0, xG: 1.5, homeWinRate: 0.70, awayWinRate: 0.42 },
-    { name: "Aston Villa", strength: 72, form: "WWLWD", goalsAvg: 1.5, goalsConceded: 1.3, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.38 },
-  ],
-  "La Liga": [
-    { name: "Real Madrid", strength: 94, form: "WWWWW", goalsAvg: 2.5, goalsConceded: 0.8, xG: 2.4, homeWinRate: 0.88, awayWinRate: 0.72 },
-    { name: "Barcelona", strength: 91, form: "WDWWW", goalsAvg: 2.3, goalsConceded: 0.9, xG: 2.2, homeWinRate: 0.85, awayWinRate: 0.68 },
-    { name: "Atlético Madrid", strength: 85, form: "WDWDW", goalsAvg: 1.8, goalsConceded: 0.7, xG: 1.7, homeWinRate: 0.75, awayWinRate: 0.55 },
-    { name: "Real Sociedad", strength: 76, form: "WDLWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.60, awayWinRate: 0.42 },
-    { name: "Villarreal", strength: 74, form: "DLWWD", goalsAvg: 1.6, goalsConceded: 1.2, xG: 1.5, homeWinRate: 0.58, awayWinRate: 0.40 },
-  ],
-  "Serie A": [
-    { name: "Inter Milan", strength: 90, form: "WDWWW", goalsAvg: 2.3, goalsConceded: 0.8, xG: 2.2, homeWinRate: 0.82, awayWinRate: 0.65 },
-    { name: "Napoli", strength: 85, form: "WDWDW", goalsAvg: 2.1, goalsConceded: 0.9, xG: 2.0, homeWinRate: 0.78, awayWinRate: 0.58 },
-    { name: "AC Milan", strength: 83, form: "WLWDW", goalsAvg: 1.9, goalsConceded: 1.0, xG: 1.8, homeWinRate: 0.72, awayWinRate: 0.52 },
-    { name: "Juventus", strength: 82, form: "WDWDW", goalsAvg: 1.7, goalsConceded: 0.7, xG: 1.6, homeWinRate: 0.70, awayWinRate: 0.55 },
-  ],
-  "Bundesliga": [
-    { name: "Bayern Munich", strength: 95, form: "WWWWW", goalsAvg: 3.0, goalsConceded: 0.8, xG: 2.8, homeWinRate: 0.90, awayWinRate: 0.75 },
-    { name: "Borussia Dortmund", strength: 88, form: "WDWWW", goalsAvg: 2.4, goalsConceded: 1.2, xG: 2.3, homeWinRate: 0.78, awayWinRate: 0.58 },
-    { name: "RB Leipzig", strength: 82, form: "WLWDW", goalsAvg: 2.0, goalsConceded: 1.1, xG: 1.9, homeWinRate: 0.70, awayWinRate: 0.52 },
-  ],
-  "Ligue 1": [
-    { name: "PSG", strength: 96, form: "WWWWW", goalsAvg: 2.8, goalsConceded: 0.7, xG: 2.7, homeWinRate: 0.92, awayWinRate: 0.78 },
-    { name: "Monaco", strength: 80, form: "WDWDL", goalsAvg: 1.9, goalsConceded: 1.2, xG: 1.8, homeWinRate: 0.65, awayWinRate: 0.48 },
-    { name: "Marseille", strength: 78, form: "WLWDW", goalsAvg: 1.8, goalsConceded: 1.1, xG: 1.7, homeWinRate: 0.62, awayWinRate: 0.45 },
-  ],
-  "Liga BetPlay": [
-    { name: "Atlético Nacional", strength: 85, form: "WDWDW", goalsAvg: 1.8, goalsConceded: 0.9, xG: 1.7, homeWinRate: 0.75, awayWinRate: 0.55 },
-    { name: "Millonarios", strength: 82, form: "WLWDW", goalsAvg: 1.7, goalsConceded: 1.0, xG: 1.6, homeWinRate: 0.72, awayWinRate: 0.52 },
-    { name: "América de Cali", strength: 78, form: "DWLWD", goalsAvg: 1.5, goalsConceded: 1.1, xG: 1.4, homeWinRate: 0.65, awayWinRate: 0.45 },
-    { name: "Junior de Barranquilla", strength: 76, form: "WDLWL", goalsAvg: 1.4, goalsConceded: 1.2, xG: 1.3, homeWinRate: 0.62, awayWinRate: 0.42 },
-    { name: "Independiente Santa Fe", strength: 72, form: "WDLWL", goalsAvg: 1.2, goalsConceded: 1.2, xG: 1.1, homeWinRate: 0.52, awayWinRate: 0.38 },
-  ],
-};
+export interface TeamGoals {
+  goalsFor: number;
+  goalsAgainst: number;
+  played?: number;
+  wins?: number;
+  draws?: number;
+  losses?: number;
+  position?: number;
+}
 
-const LEAGUES = Object.keys(TEAMS_BY_LEAGUE);
+export interface TeamStats {
+  teamId: number;
+  name: string;
+  position: number;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  avgGoalsFor: number;
+  avgGoalsAgainst: number;
+  form: string[];
+  formScore: number;
+}
 
-// ==========================================
-// INTERFACES
-// ==========================================
-export interface AvailableMatch {
-  id: string;
+export interface PoissonResult {
+  lambdaHome: number;
+  lambdaAway: number;
+  probHomeWin: number;
+  probDraw: number;
+  probAwayWin: number;
+  probOver15: number;
+  probOver25: number;
+  probUnder25: number;
+  probUnder35: number;
+  probUnder45: number;
+  probBTTS: number;
+}
+
+export interface BetOption {
+  type: 'HOME_WIN' | 'AWAY_WIN' | 'DRAW'
+      | 'DOUBLE_CHANCE_1X' | 'DOUBLE_CHANCE_X2'
+      | 'OVER_15' | 'OVER_25'
+      | 'UNDER_25' | 'UNDER_35' | 'UNDER_45'
+      | 'BTTS_YES' | 'BTTS_NO';
+  probability: number;
+  confidence: number;
+  label: string;
+  reasoning: string[];
+}
+
+export interface PickResult {
+  matchId: string;
   homeTeam: string;
   awayTeam: string;
   league: string;
-  matchDate: Date;
-  homeStrength: number;
-  awayStrength: number;
-  homeForm: string;
-  awayForm: string;
-  homeGoalsAvg: number;
-  awayGoalsAvg: number;
-  homeXG: number;
-  awayXG: number;
-  homeWinRate: number;
-  awayWinRate: number;
+  matchDate: string;
+  pick: BetOption;
+  safePicks: BetOption[];
+  allOptions: BetOption[];
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'NO_BET';
+  modelVersion: string;
 }
 
 export interface MatchPick {
@@ -84,12 +77,21 @@ export interface MatchPick {
   homeTeam: string;
   awayTeam: string;
   league: string;
-  matchDate: Date;
+  matchDate: string;
   pick: string;
   odds: number;
   probability: number;
   analysis: string;
+  score: number;
+  monteCarloProb: number;
+  eloDiff: number;
+  xGTotal: number;
+  volatility: number;
+  valueBet: number;
   status: 'pending' | 'live' | 'won' | 'lost';
+  homeTeamId?: number;
+  awayTeamId?: number;
+  safePicks?: string[];
 }
 
 export interface Combinada {
@@ -97,386 +99,501 @@ export interface Combinada {
   picks: MatchPick[];
   totalOdds: number;
   totalProbability: number;
+  score: number;
   risk: 'low';
   status: 'pending' | 'live' | 'won' | 'lost';
   taken: boolean;
 }
 
-// ==========================================
-// CACHE DE PARTIDOS
-// ==========================================
-const matchesCache = new Map<string, AvailableMatch[]>();
-
-// ==========================================
-// FUNCIONES AUXILIARES
-// ==========================================
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 10);
-}
-
-function getRandomItem<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)];
-}
-
-// ==========================================
-// GENERAR PARTIDOS DISPONIBLES
-// ==========================================
-export function generateAvailableMatches(numMatches: number, league?: string): AvailableMatch[] {
-  const matches: AvailableMatch[] = [];
-  const now = new Date();
-  // Ajustar a hora de Colombia (UTC-5)
-  const colombiaTime = new Date(now.getTime() - (5 * 60 * 60 * 1000));
-  const usedTeams = new Set<string>();
-  
-  const leaguesToUse = league ? [league] : LEAGUES;
-  
-  for (let i = 0; i < numMatches; i++) {
-    let attempts = 0;
-    
-    while (attempts < 50) {
-      const selectedLeague = getRandomItem(leaguesToUse);
-      const teams = TEAMS_BY_LEAGUE[selectedLeague];
-      if (!teams) break;
-      
-      const home = getRandomItem(teams);
-      let away = getRandomItem(teams);
-      while (away.name === home.name) {
-        away = getRandomItem(teams);
-      }
-      
-      const teamKey = `${home.name}-${away.name}`;
-      if (usedTeams.has(teamKey)) {
-        attempts++;
-        continue;
-      }
-      
-      // Fecha en horario de Colombia
-      const matchDate = new Date(colombiaTime);
-      matchDate.setHours(matchDate.getHours() + (i * 6) + Math.floor(Math.random() * 24));
-      matchDate.setMinutes([0, 15, 30, 45][Math.floor(Math.random() * 4)]);
-      matchDate.setSeconds(0);
-      
-      matches.push({
-        id: generateId(),
-        homeTeam: home.name,
-        awayTeam: away.name,
-        league: selectedLeague,
-        matchDate,
-        homeStrength: home.strength,
-        awayStrength: away.strength,
-        homeForm: home.form,
-        awayForm: away.form,
-        homeGoalsAvg: home.goalsAvg,
-        awayGoalsAvg: away.goalsAvg,
-        homeXG: home.xG,
-        awayXG: home.xG,
-        homeWinRate: home.homeWinRate,
-        awayWinRate: home.awayWinRate,
-      });
-      
-      usedTeams.add(teamKey);
-      break;
-    }
-  }
-  
-  return matches.sort((a, b) => a.matchDate.getTime() - b.matchDate.getTime());
-}
-
-// ==========================================
-// ANÁLISIS DE BAJO RIESGO
-// ==========================================
-interface LowRiskPick {
-  label: string;
-  probability: number;
-  odds: number;
-  reasoning: string;
-}
-
-function analyzeLowRiskPicks(match: AvailableMatch): LowRiskPick[] {
-  const picks: LowRiskPick[] = [];
-  const diff = match.homeStrength - match.awayStrength;
-  const homeWinRate = match.homeForm.split('').filter(c => c === 'W').length / 5;
-  const awayWinRate = match.awayForm.split('').filter(c => c === 'W').length / 5;
-  const totalGoalsAvg = match.homeGoalsAvg + match.awayGoalsAvg;
-  const totalXG = match.homeXG + match.awayXG;
-  
-  // Doble oportunidad 1X (Local gana o empata)
-  if (diff > 5 || match.homeWinRate > 0.5) {
-    const prob = Math.min(0.85, 0.60 + (diff * 0.005) + (homeWinRate * 0.15));
-    picks.push({
-      label: `${match.homeTeam} gana o empata (1X)`,
-      probability: prob,
-      odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `${match.homeTeam} tiene ${Math.round(homeWinRate * 100)}% victorias en casa.`
-    });
-  }
-  
-  // Doble oportunidad X2 (Visitante gana o empata)
-  if (diff < -5 || match.awayWinRate > 0.5) {
-    const prob = Math.min(0.85, 0.60 + (Math.abs(diff) * 0.005) + (awayWinRate * 0.15));
-    picks.push({
-      label: `${match.awayTeam} gana o empata (X2)`,
-      probability: prob,
-      odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `${match.awayTeam} tiene ${Math.round(awayWinRate * 100)}% victorias como visitante.`
-    });
-  }
-  
-  // Over 1.5 goles
-  if (totalGoalsAvg > 2.0 || totalXG > 2.0) {
-    const prob = Math.min(0.90, 0.70 + (totalGoalsAvg - 2) * 0.08);
-    picks.push({
-      label: 'Más de 1.5 goles',
-      probability: prob,
-      odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `Promedio: ${totalGoalsAvg.toFixed(1)} goles.`
-    });
-  }
-  
-  // Under 4.5 goles
-  if (totalGoalsAvg < 3.5) {
-    const prob = Math.min(0.95, 0.80 + (3.5 - totalGoalsAvg) * 0.08);
-    picks.push({
-      label: 'Menos de 4.5 goles',
-      probability: prob,
-      odds: Math.round((1 / prob) * 100) / 100,
-      reasoning: `Partido cerrado esperado.`
-    });
-  }
-  
-  // Si no hay picks, agregar uno por defecto
-  if (picks.length === 0) {
-    picks.push({
-      label: `${match.homeTeam} gana o empata (1X)`,
-      probability: 0.70,
-      odds: 1.42,
-      reasoning: `Pick conservador.`
-    });
-  }
-  
-  return picks.sort((a, b) => b.probability - a.probability);
-}
-
-// ==========================================
-// GENERAR COMBINADA DESDE PARTIDOS
-// ==========================================
-export function generateCombinadaFromMatches(
-  selectedMatches: AvailableMatch[],
-  numPicks: number
-): Combinada {
-  const allPicks: { match: AvailableMatch; pick: LowRiskPick }[] = [];
-  
-  for (const match of selectedMatches) {
-    // Convertir fecha si viene como string
-    const normalizedMatch = {
-      ...match,
-      matchDate: typeof match.matchDate === 'string' ? new Date(match.matchDate) : match.matchDate
-    };
-    
-    const lowRiskPicks = analyzeLowRiskPicks(normalizedMatch);
-    if (lowRiskPicks.length > 0) {
-      allPicks.push({ match: normalizedMatch, pick: lowRiskPicks[0] });
-    }
-  }
-  
-  const selectedPicks = allPicks
-    .sort((a, b) => b.pick.probability - a.pick.probability)
-    .slice(0, Math.min(numPicks, 20));
-  
-  const matchPicks: MatchPick[] = selectedPicks.map(({ match, pick }) => ({
-    matchId: match.id,
-    homeTeam: match.homeTeam,
-    awayTeam: match.awayTeam,
-    league: match.league,
-    matchDate: match.matchDate,
-    pick: pick.label,
-    odds: pick.odds,
-    probability: pick.probability,
-    analysis: pick.reasoning,
-    status: 'pending' as const,
-  }));
-  
-  const totalOdds = Math.round(matchPicks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
-  const totalProbability = Math.round(matchPicks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
-  
-  return {
-    id: generateId(),
-    picks: matchPicks,
-    totalOdds,
-    totalProbability,
-    risk: 'low',
-    status: 'pending',
-    taken: false,
+export interface MatchAnalysis {
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  score: number;
+  eloDiff: number;
+  xGTotal: number;
+  monteCarloProb: number;
+  volatility: number;
+  valueBet: number;
+  bestPick: {
+    label: string;
+    probability: number;
+    odds: number;
+    reasoning: string;
   };
 }
 
 // ==========================================
-// PROCESAMIENTO PRINCIPAL
+// CONSTANTES
 // ==========================================
-export async function processWithAI(
-  userMessage: string,
-  username?: string,
-  userId?: string,
-  selectedMatchIds?: string[]
-): Promise<{
-  message: string;
-  combinadas?: Combinada[];
-  type: string;
-  availableMatches?: AvailableMatch[];
-}> {
-  const lowerMessage = userMessage.toLowerCase().trim();
-  
-  // ========== SI HAY PARTIDOS SELECCIONADOS ==========
-  if (selectedMatchIds && selectedMatchIds.length > 0 && userId) {
-    const cachedMatches = matchesCache.get(userId) || [];
-    const selectedMatches = cachedMatches.filter(m => selectedMatchIds.includes(m.id));
-    
-    if (selectedMatches.length > 0) {
-      const combinada = generateCombinadaFromMatches(selectedMatches, selectedMatches.length);
-      
-      // Formatear fecha en horario Colombia
-      const formatDate = (d: Date) => {
-        return d.toLocaleDateString('es-CO', {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'short',
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZone: 'America/Bogota'
-        });
+const LEAGUE_AVG_GOALS = 1.35;
+const CACHE_DURATION = 30 * 60 * 1000;
+
+// Cache
+const goalsCache = new Map<string, Map<string, TeamGoals>>();
+const goalsCacheTime = new Map<string, number>();
+
+// ==========================================
+// MAPEO DE LIGAS
+// ==========================================
+const LEAGUE_CODE_MAP: Record<string, string> = {
+  'Liga BetPlay': 'col.1',
+  'Liga Argentina': 'arg.1',
+  'Brasileirão': 'bra.1',
+  'Liga MX': 'mex.1',
+  'Premier League': 'eng.1',
+  'La Liga': 'esp.1',
+  'Serie A': 'ita.1',
+  'Bundesliga': 'ger.1',
+  'Ligue 1': 'fra.1',
+  'Champions League': 'uefa.champions',
+  'Europa League': 'uefa.europa',
+  'MLS': 'usa.1',
+  'Eredivisie': 'ned.1',
+  'Primeira Liga': 'por.1',
+  'Süper Lig': 'tur.1',
+};
+
+// ==========================================
+// ESPN STANDINGS - OBTENER GOLES REALES
+// ==========================================
+async function getGoalsFromESPNStandings(leagueCode: string): Promise<Map<string, TeamGoals>> {
+  const result = new Map<string, TeamGoals>();
+
+  // Verificar cache
+  const cached = goalsCache.get(leagueCode);
+  const cachedTime = goalsCacheTime.get(leagueCode);
+  if (cached && cachedTime && Date.now() - cachedTime < CACHE_DURATION) {
+    return cached;
+  }
+
+  try {
+    console.log(`📊 Obteniendo goles de ESPN Standings: ${leagueCode}`);
+    const url = `https://site.api.espn.com/apis/v2/sports/soccer/${leagueCode}/standings`;
+
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!res.ok) {
+      console.log(`❌ ESPN Standings error: ${res.status}`);
+      return result;
+    }
+
+    const data: any = await res.json();
+    let entries = data.standings?.entries || [];
+
+    if (entries.length === 0 && data.children) {
+      for (const child of data.children) {
+        if (child.standings?.entries?.length > 0) {
+          entries = entries.concat(child.standings.entries);
+        }
+      }
+    }
+
+    for (const entry of entries) {
+      const teamName = entry.team?.displayName?.toLowerCase() || '';
+      const stats = entry.stats || [];
+
+      const getStat = (name: string): number => {
+        const stat = stats.find((s: any) => s.name === name);
+        return stat?.value || 0;
       };
-      
-      let response = `🎰 **COMBINADA GENERADA**\n\n`;
-      response += `Con los ${selectedMatches.length} partidos que seleccionaste:\n\n`;
-      response += `📊 **Probabilidad:** ${(combinada.totalProbability * 100).toFixed(0)}%\n`;
-      response += `💰 **Cuota:** ${combinada.totalOdds.toFixed(2)}\n\n`;
-      response += `---\n`;
-      
-      combinada.picks.forEach((pick, i) => {
-        response += `\n**${i + 1}. ${pick.homeTeam} vs ${pick.awayTeam}**\n`;
-        response += `📅 ${formatDate(pick.matchDate)} | 📍 ${pick.league}\n`;
-        response += `✅ **${pick.pick}**\n`;
-        response += `💰 ${pick.odds.toFixed(2)} | ${(pick.probability * 100).toFixed(0)}%\n\n`;
-      });
-      
-      response += `---\n\n`;
-      response += `🟢 **BAJO RIESGO**\n\n`;
-      response += `*Agradece al Dios Yerson.* 🙏`;
-      
-      // Limpiar cache
-      matchesCache.delete(userId);
-      
-      return { message: response, combinadas: [combinada], type: 'combinadas' };
+
+      const goalsFor = getStat('pointsFor') || getStat('goalsFor') || getStat('goalsScored') || 0;
+      const goalsAgainst = getStat('pointsAgainst') || getStat('goalsAgainst') || getStat('goalsConceded') || 0;
+      const wins = getStat('wins') || 0;
+      const losses = getStat('losses') || 0;
+      const draws = getStat('ties') || getStat('draws') || 0;
+      const played = wins + draws + losses;
+      const position = getStat('rank') || parseInt(entry.team?.rank || '0');
+
+      if (teamName && (goalsFor > 0 || goalsAgainst > 0)) {
+        result.set(teamName, { goalsFor, goalsAgainst, played, wins, draws, losses, position });
+      }
     }
-  }
-  
-  // ========== VER PARTIDOS ==========
-  if (lowerMessage.includes('ver partido') || lowerMessage.includes('partidos disponible') || 
-      lowerMessage.includes('quiero ver') || lowerMessage.includes('mostrar') ||
-      lowerMessage.includes('lista') || lowerMessage.includes('partidos')) {
-    
-    const numMatch = lowerMessage.match(/(\d+)/);
-    const numMatches = numMatch ? Math.min(parseInt(numMatch[1]), 20) : 10;
-    
-    const matches = generateAvailableMatches(numMatches);
-    
+
+    console.log(`✅ ESPN Standings: ${result.size} equipos con goles reales`);
+
     // Guardar en cache
-    if (userId) {
-      matchesCache.set(userId, matches);
+    goalsCache.set(leagueCode, result);
+    goalsCacheTime.set(leagueCode, Date.now());
+
+  } catch (error: any) {
+    console.error(`❌ Error ESPN Standings:`, error.message);
+  }
+
+  return result;
+}
+
+// ==========================================
+// HELPERS
+// ==========================================
+function getStat(stats: any[], name: string): number {
+  const stat = stats?.find(s => s.name === name);
+  return stat ? parseFloat(stat.value) || 0 : 0;
+}
+
+function factorial(n: number): number {
+  if (n <= 1) return 1;
+  let result = 1;
+  for (let i = 2; i <= n; i++) result *= i;
+  return result;
+}
+
+function poisson(lambda: number, k: number): number {
+  return (Math.pow(Math.E, -lambda) * Math.pow(lambda, k)) / factorial(k);
+}
+
+// ==========================================
+// CAPA 1: EXTRAER STATS
+// ==========================================
+async function extractTeamStats(competitor: any, leagueCode?: string): Promise<TeamStats> {
+  if (!competitor) {
+    return {
+      teamId: 0, name: 'Desconocido', position: 10, played: 10,
+      wins: 4, draws: 3, losses: 3, goalsFor: 14, goalsAgainst: 14,
+      avgGoalsFor: 1.35, avgGoalsAgainst: 1.35, form: ['W','D','L','W','D'], formScore: 0.5,
+    };
+  }
+
+  // Buscar goles reales
+  let realGoals: TeamGoals | null = null;
+  if (leagueCode) {
+    const teamName = competitor.team?.displayName?.toLowerCase() || '';
+    const leagueGoals = await getGoalsFromESPNStandings(leagueCode);
+    realGoals = leagueGoals.get(teamName) || null;
+
+    if (!realGoals) {
+      for (const [name, data] of leagueGoals) {
+        if (name.includes(teamName) || teamName.includes(name)) {
+          realGoals = data;
+          break;
+        }
+      }
     }
-    
-    let response = `📋 **PARTIDOS DISPONIBLES**\n\n`;
-    response += `Selecciona los partidos en la lista de abajo:\n\n`;
-    
-    return { message: response, type: 'showing_matches', availableMatches: matches };
+
+    if (realGoals) {
+      console.log(`✅ Goles REALES para ${competitor.team?.displayName}: GF ${realGoals.goalsFor}, GA ${realGoals.goalsAgainst}`);
+    }
   }
-  
-  // ========== GENERAR AUTOMÁTICAMENTE ==========
-  if (lowerMessage.includes('automátic') || lowerMessage.includes('automatico') || lowerMessage.includes('auto')) {
-    const numMatch = lowerMessage.match(/(\d+)/);
-    const numPicks = numMatch ? Math.min(parseInt(numMatch[1]), 20) : 5;
-    
-    const matches = generateAvailableMatches(numPicks + 2);
-    const combinada = generateCombinadaFromMatches(matches, numPicks);
-    
-    const formatDate = (d: Date) => {
-      return d.toLocaleDateString('es-CO', {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'America/Bogota'
-      });
-    };
-    
-    let response = `🎰 **COMBINADA AUTOMÁTICA**\n\n`;
-    response += `📊 **Probabilidad:** ${(combinada.totalProbability * 100).toFixed(0)}%\n`;
-    response += `💰 **Cuota:** ${combinada.totalOdds.toFixed(2)}\n\n`;
-    response += `---\n`;
-    
-    combinada.picks.forEach((pick, i) => {
-      response += `\n**${i + 1}. ${pick.homeTeam} vs ${pick.awayTeam}**\n`;
-      response += `📅 ${formatDate(pick.matchDate)} | 📍 ${pick.league}\n`;
-      response += `✅ **${pick.pick}**\n`;
-      response += `💰 ${pick.odds.toFixed(2)} | ${(pick.probability * 100).toFixed(0)}%\n\n`;
-    });
-    
-    response += `---\n\n`;
-    response += `🟢 **BAJO RIESGO**\n\n`;
-    response += `*Agradece al Dios Yerson.* 🙏`;
-    
-    return { message: response, combinadas: [combinada], type: 'combinadas' };
+
+  const stats = competitor.statistics || [];
+  const records = competitor.records || [];
+  const totalRecord = records.find((r: any) => r.type === 'total') || records[0] || {};
+
+  const recordParts = (totalRecord.summary || '0-0-0').split('-').map((n: string) => parseInt(n) || 0);
+  const wins = recordParts[0] || 0;
+  const draws = recordParts[1] || 0;
+  const losses = recordParts[2] || 0;
+  const played = wins + draws + losses || 1;
+
+  let goalsFor: number, goalsAgainst: number;
+  if (realGoals && realGoals.goalsFor > 0) {
+    goalsFor = realGoals.goalsFor;
+    goalsAgainst = realGoals.goalsAgainst;
+  } else {
+    goalsFor = getStat(stats, 'totalGoals') || getStat(stats, 'goalsScored') || 0;
+    goalsAgainst = getStat(stats, 'goalsConceded') || 0;
+    if (!goalsFor && !goalsAgainst) {
+      const winRate = wins / played;
+      goalsFor = Math.round((winRate * 2 + 1) * played);
+      goalsAgainst = Math.round(((1 - winRate) * 1.5 + 0.5) * played);
+    }
   }
-  
-  // ========== SALUDO ==========
-  if (lowerMessage.includes('hola') || lowerMessage.includes('buenas') || lowerMessage.includes('hey')) {
-    return {
-      message: `${username || 'Mi socio'}, hola mi ludopana favorito, ya vienes a gastar plata en apuestas como buen pobre. ¿Que pensaste? ¿Te voy a sacar de pobre? jajaja pobrecito este care mondá, mejor dime ¿en que partidos le vas a encomendar tu dinero al El Dios Yerson?
 
-Recuerda agradecerle siempre al El Dios Yerson por cada combinada 🙏
+  const position = realGoals?.position || getStat(stats, 'rank') || parseInt(competitor.curatedRank?.current || '0') || Math.round(20 - (wins / played) * 15);
 
-💡 Escribe **"ver partidos"** para ver los partidos disponibles.`,
-      type: 'greeting'
-    };
+  let form: string[] = [];
+  if (competitor.form && typeof competitor.form === 'string') {
+    form = competitor.form.toUpperCase().split('').slice(-5);
   }
-  
-  // ========== AYUDA ==========
-  if (lowerMessage.includes('ayuda') || lowerMessage.includes('help')) {
-    return {
-      message: `📖 **CÓMO FUNCIONA**
 
-**1️⃣ Escribe "ver partidos"**
-   Te muestro los partidos con fecha y hora de Colombia
+  const formScore = form.reduce((acc: number, r: string) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0) / 15;
+  const avgGoalsFor = played > 0 ? goalsFor / played : 1.35;
+  const avgGoalsAgainst = played > 0 ? goalsAgainst / played : 1.35;
 
-**2️⃣ Selecciona los partidos**
-   Haz clic en los que quieras incluir
-
-**3️⃣ Confirma tu selección**
-   Yo genero los picks más seguros
-
-**4️⃣ Toma la apuesta**
-   Se guarda en "Activas"
-
----
-💡 **MODO AUTOMÁTICO:** Escribe **"generar automáticamente"**
-
-🟢 **Solo apuestas de BAJO RIESGO**`,
-      type: 'help'
-    };
-  }
-  
-  // ========== POR DEFECTO ==========
   return {
-    message: `No entendí, mi socio. 🤔
-
-¿Quieres ver los partidos?
-• Escribe **"ver partidos"**
-• O di **"generar automáticamente"**
-
-*Agradece al Dios Yerson.* 🙏`,
-    type: 'unknown'
+    teamId: parseInt(competitor.team?.id || '0'),
+    name: competitor.team?.displayName || 'Desconocido',
+    position, played, wins, draws, losses, goalsFor, goalsAgainst,
+    avgGoalsFor, avgGoalsAgainst, form, formScore: formScore || 0.5,
   };
 }
 
-export { LEAGUES, TEAMS_BY_LEAGUE };
+// ==========================================
+// CAPA 2: POISSON
+// ==========================================
+function calcularPoisson(homeStats: TeamStats, awayStats: TeamStats): PoissonResult {
+  const lambdaHome = (homeStats.avgGoalsFor / LEAGUE_AVG_GOALS) * (awayStats.avgGoalsAgainst / LEAGUE_AVG_GOALS) * LEAGUE_AVG_GOALS * 1.1;
+  const lambdaAway = (awayStats.avgGoalsFor / LEAGUE_AVG_GOALS) * (homeStats.avgGoalsAgainst / LEAGUE_AVG_GOALS) * LEAGUE_AVG_GOALS;
+
+  const matrix: number[][] = [];
+  for (let h = 0; h <= 5; h++) {
+    matrix[h] = [];
+    for (let a = 0; a <= 5; a++) {
+      matrix[h][a] = poisson(lambdaHome, h) * poisson(lambdaAway, a);
+    }
+  }
+
+  let probHomeWin = 0, probDraw = 0, probAwayWin = 0;
+  let probOver15 = 0, probOver25 = 0, probUnder25 = 0, probUnder35 = 0, probUnder45 = 0, probBTTS = 0;
+
+  for (let h = 0; h <= 5; h++) {
+    for (let a = 0; a <= 5; a++) {
+      const p = matrix[h][a];
+      if (h > a) probHomeWin += p;
+      else if (h === a) probDraw += p;
+      else probAwayWin += p;
+      if (h + a > 1.5) probOver15 += p;
+      if (h + a > 2.5) probOver25 += p;
+      if (h + a < 2.5) probUnder25 += p;
+      if (h + a < 3.5) probUnder35 += p;
+      if (h + a < 4.5) probUnder45 += p;
+      if (h >= 1 && a >= 1) probBTTS += p;
+    }
+  }
+
+  return { lambdaHome, lambdaAway, probHomeWin, probDraw, probAwayWin, probOver15, probOver25, probUnder25, probUnder35, probUnder45, probBTTS };
+}
+
+// ==========================================
+// CAPA 2: ELO
+// ==========================================
+function calcularElo(stats: TeamStats, base = 1500): number {
+  const posicionBonus = (20 - stats.position) * 15;
+  const formaBonus = stats.formScore * 100;
+  const diferenciaGoles = (stats.goalsFor - stats.goalsAgainst) * 2;
+  return base + posicionBonus + formaBonus + diferenciaGoles;
+}
+
+// ==========================================
+// CAPA 3: CONFIANZA
+// ==========================================
+function calcularConfianza(poissonProb: number, eloProb: number, formFactor: number): number {
+  return Math.round((poissonProb * 0.50 + eloProb * 0.30 + formFactor * 0.20) * 100);
+}
+
+// ==========================================
+// RAZONAMIENTO
+// ==========================================
+function generarRazones(home: TeamStats, away: TeamStats, tipo: string): string[] {
+  const razones: string[] = [];
+  const totalAvg = home.avgGoalsFor + away.avgGoalsFor;
+
+  if (tipo === 'OVER_15') {
+    razones.push(`Promedio combinado de ${totalAvg.toFixed(1)} goles por partido`);
+    razones.push('La mayoría de ligas profesionales supera 1.5 goles por partido');
+    if (home.avgGoalsFor > 1.2) razones.push(`${home.name} anota ${home.avgGoalsFor.toFixed(1)} de local`);
+    if (away.avgGoalsFor > 1.0) razones.push(`${away.name} anota ${away.avgGoalsFor.toFixed(1)} de visita`);
+  }
+
+  if (tipo === 'UNDER_35') {
+    if (home.avgGoalsAgainst < 1.2) razones.push(`${home.name} recibe solo ${home.avgGoalsAgainst.toFixed(1)} goles por partido`);
+    if (away.avgGoalsAgainst < 1.2) razones.push(`${away.name} recibe solo ${away.avgGoalsAgainst.toFixed(1)} goles por partido`);
+    razones.push('Partidos con más de 3 goles son menos del 25% en fútbol profesional');
+  }
+
+  if (tipo === 'UNDER_45') {
+    razones.push('Partidos con 5 o más goles son estadísticamente muy raros (<5%)');
+    if (totalAvg < 3.0) razones.push(`Promedio combinado bajo: ${totalAvg.toFixed(1)} goles por partido`);
+  }
+
+  if (tipo === 'UNDER_25') {
+    if (home.avgGoalsAgainst < 1.0) razones.push(`${home.name} es sólido atrás: ${home.avgGoalsAgainst.toFixed(1)} goles recibidos`);
+    if (away.avgGoalsFor < 1.0) razones.push(`${away.name} anota poco de visita`);
+    if (home.avgGoalsFor < 1.3 && away.avgGoalsFor < 1.3) razones.push('Ambos equipos tienen ataques limitados');
+  }
+
+  if (tipo === '1X') {
+    if (home.formScore > 0.6) razones.push(`${home.name} lleva buena racha: ${home.form.join('-')}`);
+    if (home.position < away.position) razones.push(`${home.name} está ${away.position - home.position} puestos arriba en tabla`);
+    razones.push('Doble oportunidad cubre 2 de 3 resultados');
+  }
+
+  if (tipo === 'X2') {
+    if (away.formScore > 0.6) razones.push(`${away.name} lleva buena racha: ${away.form.join('-')}`);
+    if (away.position < home.position) razones.push(`${away.name} está mejor posicionado en tabla`);
+    razones.push('Doble oportunidad cubre 2 de 3 resultados');
+  }
+
+  if (razones.length === 0) razones.push('Análisis basado en estadísticas de Poisson y ELO');
+  return razones;
+}
+
+// ==========================================
+// CAPA 4: TODAS LAS APUESTAS
+// ==========================================
+const PICK_PRIORITY: Record<string, number> = {
+  'OVER_15': 100, 'UNDER_35': 95, 'DOUBLE_CHANCE_1X': 90, 'DOUBLE_CHANCE_X2': 90,
+  'OVER_25': 85, 'UNDER_25': 80, 'BTTS_YES': 75, 'HOME_WIN': 70, 'AWAY_WIN': 70,
+  'BTTS_NO': 65, 'UNDER_45': 50, 'DRAW': 40,
+};
+
+function selectBestPick(options: BetOption[]): BetOption {
+  const safeOptions = options.filter(o => o.confidence >= 65);
+  if (safeOptions.length === 0) return options.reduce((best, curr) => curr.confidence > best.confidence ? curr : best);
+
+  const highConfidencePicks = safeOptions.filter(o => o.confidence >= 70);
+  if (highConfidencePicks.length > 0) {
+    highConfidencePicks.sort((a, b) => {
+      const priorityA = PICK_PRIORITY[a.type] || 50;
+      const priorityB = PICK_PRIORITY[b.type] || 50;
+      if (priorityA !== priorityB) return priorityB - priorityA;
+      return b.confidence - a.confidence;
+    });
+    return highConfidencePicks[0];
+  }
+
+  return safeOptions.reduce((best, curr) => curr.confidence > best.confidence ? curr : best);
+}
+
+function calcularTodasLasApuestas(home: TeamStats, away: TeamStats, p: PoissonResult, eloHome: number, eloAway: number): BetOption[] {
+  const eloProb = 1 / (1 + Math.pow(10, (eloAway - eloHome) / 400));
+  const golesPromedio = home.avgGoalsFor + away.avgGoalsFor;
+
+  return [
+    { type: 'HOME_WIN', probability: p.probHomeWin, confidence: calcularConfianza(p.probHomeWin, eloProb, home.formScore), label: 'Gana local', reasoning: generarRazones(home, away, 'HOME') },
+    { type: 'AWAY_WIN', probability: p.probAwayWin, confidence: calcularConfianza(p.probAwayWin, 1 - eloProb, away.formScore), label: 'Gana visitante', reasoning: generarRazones(home, away, 'AWAY') },
+    { type: 'DRAW', probability: p.probDraw, confidence: calcularConfianza(p.probDraw, 0.3, 0.4), label: 'Empate', reasoning: generarRazones(home, away, 'DRAW') },
+    { type: 'DOUBLE_CHANCE_1X', probability: p.probHomeWin + p.probDraw, confidence: calcularConfianza(p.probHomeWin + p.probDraw, Math.min(1, eloProb + 0.15), home.formScore), label: 'Gana o empata local (1X)', reasoning: generarRazones(home, away, '1X') },
+    { type: 'DOUBLE_CHANCE_X2', probability: p.probAwayWin + p.probDraw, confidence: calcularConfianza(p.probAwayWin + p.probDraw, Math.min(1, 1 - eloProb + 0.15), away.formScore), label: 'Gana o empata visitante (X2)', reasoning: generarRazones(home, away, 'X2') },
+    { type: 'OVER_15', probability: p.probOver15, confidence: calcularConfianza(p.probOver15, 0.5, Math.min(1, golesPromedio / 4)), label: 'Más de 1.5 goles', reasoning: generarRazones(home, away, 'OVER_15') },
+    { type: 'OVER_25', probability: p.probOver25, confidence: calcularConfianza(p.probOver25, 0.5, Math.min(1, golesPromedio / 5)), label: 'Más de 2.5 goles', reasoning: generarRazones(home, away, 'OVER_25') },
+    { type: 'UNDER_25', probability: p.probUnder25, confidence: calcularConfianza(p.probUnder25, 0.5, Math.max(0, 1 - golesPromedio / 5)), label: 'Menos de 2.5 goles', reasoning: generarRazones(home, away, 'UNDER_25') },
+    { type: 'UNDER_35', probability: p.probUnder35, confidence: calcularConfianza(p.probUnder35, 0.65, Math.max(0, 1 - golesPromedio / 6)), label: 'Menos de 3.5 goles', reasoning: generarRazones(home, away, 'UNDER_35') },
+    { type: 'UNDER_45', probability: p.probUnder45, confidence: calcularConfianza(p.probUnder45, 0.80, Math.max(0, 1 - golesPromedio / 8)), label: 'Menos de 4.5 goles', reasoning: generarRazones(home, away, 'UNDER_45') },
+    { type: 'BTTS_YES', probability: p.probBTTS, confidence: calcularConfianza(p.probBTTS, 0.5, Math.min(1, (home.avgGoalsFor + away.avgGoalsFor) / 6)), label: 'Ambos equipos anotan', reasoning: generarRazones(home, away, 'BTTS') },
+    { type: 'BTTS_NO', probability: 1 - p.probBTTS, confidence: calcularConfianza(1 - p.probBTTS, 0.5, Math.max(0, 1 - (home.avgGoalsFor + away.avgGoalsFor) / 6)), label: 'No anotan ambos equipos', reasoning: generarRazones(home, away, 'BTTS_NO') },
+  ];
+}
+
+// ==========================================
+// ANÁLISIS PRINCIPAL
+// ==========================================
+export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult> {
+  console.log(`🔍 Analizando: ${match.homeTeam} vs ${match.awayTeam}`);
+
+  const leagueCode = LEAGUE_CODE_MAP[match.league] || '';
+  console.log(`📍 Liga: ${match.league} (${leagueCode || 'sin código'})`);
+
+  const homeStats = await extractTeamStats(match.homeCompetitorRaw, leagueCode);
+  const awayStats = await extractTeamStats(match.awayCompetitorRaw, leagueCode);
+
+  const poissonResult = calcularPoisson(homeStats, awayStats);
+  const eloHome = calcularElo(homeStats);
+  const eloAway = calcularElo(awayStats);
+
+  const options = calcularTodasLasApuestas(homeStats, awayStats, poissonResult, eloHome, eloAway);
+  options.sort((a, b) => b.confidence - a.confidence);
+
+  const bestPick = selectBestPick(options);
+  const safePicks = options.filter(o => o.confidence >= 65);
+
+  let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'NO_BET';
+  if (bestPick.confidence >= 70) riskLevel = 'LOW';
+  else if (bestPick.confidence >= 55) riskLevel = 'MEDIUM';
+  else if (bestPick.confidence >= 45) riskLevel = 'HIGH';
+  else riskLevel = 'NO_BET';
+
+  console.log(`✅ Pick: ${bestPick.label} (${bestPick.confidence}% confianza) - Riesgo: ${riskLevel}`);
+
+  return {
+    matchId: match.id, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
+    league: match.league, matchDate: match.matchDate, pick: bestPick,
+    safePicks, allOptions: options, riskLevel,
+    modelVersion: 'poisson-elo-v5.0-espn',
+  };
+}
+
+export async function analyzeMatches(matches: MatchForApp[]): Promise<PickResult[]> {
+  console.log(`🔍 Analizando ${matches.length} partidos...`);
+  const results: PickResult[] = [];
+
+  for (const match of matches) {
+    try {
+      const result = await analyzeMatchAsync(match);
+      if (result.riskLevel !== 'NO_BET') results.push(result);
+    } catch (error) {
+      console.error(`Error analizando ${match.homeTeam} vs ${match.awayTeam}:`, error);
+    }
+  }
+
+  results.sort((a, b) => b.pick.confidence - a.pick.confidence);
+  console.log(`✅ ${results.length} partidos con picks recomendables`);
+  return results;
+}
+
+// ==========================================
+// COMPATIBILIDAD CON CHAT.TS
+// ==========================================
+function pickResultToMatchPick(pickResult: PickResult): MatchPick {
+  return {
+    matchId: pickResult.matchId,
+    homeTeam: pickResult.homeTeam,
+    awayTeam: pickResult.awayTeam,
+    league: pickResult.league,
+    matchDate: pickResult.matchDate,
+    pick: pickResult.pick.label,
+    odds: Math.round((1 / pickResult.pick.probability) * 100) / 100,
+    probability: pickResult.pick.probability,
+    analysis: pickResult.pick.reasoning.join(' | '),
+    score: pickResult.pick.confidence,
+    monteCarloProb: pickResult.pick.probability,
+    eloDiff: 0,
+    xGTotal: 2.7,
+    volatility: 100 - pickResult.pick.confidence,
+    valueBet: Math.max(0, (pickResult.pick.probability - 0.5) * 100),
+    status: 'pending',
+    safePicks: pickResult.safePicks.map(s => s.label),
+  };
+}
+
+export function analyzeMatchSync(homeTeamName: string, awayTeamName: string, leagueName?: string): MatchAnalysis {
+  const homeStats: TeamStats = {
+    teamId: 0, name: homeTeamName, position: 10, played: 10,
+    wins: 4, draws: 3, losses: 3, goalsFor: 14, goalsAgainst: 14,
+    avgGoalsFor: 1.35, avgGoalsAgainst: 1.35, form: ['W','D','L','W','D'], formScore: 0.5,
+  };
+  const awayStats: TeamStats = { ...homeStats, name: awayTeamName };
+
+  const poissonResult = calcularPoisson(homeStats, awayStats);
+  const eloHome = calcularElo(homeStats);
+  const eloAway = calcularElo(awayStats);
+  const options = calcularTodasLasApuestas(homeStats, awayStats, poissonResult, eloHome, eloAway);
+  options.sort((a, b) => b.confidence - a.confidence);
+
+  const bestPick = options[0];
+
+  return {
+    homeTeam: homeTeamName, awayTeam: awayTeamName, league: leagueName || 'Liga Desconocida',
+    score: bestPick.confidence, eloDiff: eloHome - eloAway, xGTotal: homeStats.avgGoalsFor + awayStats.avgGoalsFor,
+    monteCarloProb: bestPick.probability, volatility: 100 - bestPick.confidence,
+    valueBet: Math.max(0, (bestPick.probability - 0.5) * 100),
+    bestPick: { label: bestPick.label, probability: bestPick.probability, odds: Math.round((1 / bestPick.probability) * 100) / 100, reasoning: bestPick.reasoning.join(' | ') },
+  };
+}
+
+export async function generateCombinadaFromMatchesAsync(selectedMatches: MatchForApp[]): Promise<Combinada> {
+  console.log(`🎯 Generando combinada con ${selectedMatches.length} partidos...`);
+  const results = await analyzeMatches(selectedMatches);
+  const goodResults = results.filter(r => r.riskLevel === 'LOW' || r.riskLevel === 'MEDIUM');
+  const picks = goodResults.map(pickResultToMatchPick);
+
+  const totalOdds = Math.round(picks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
+  const totalProbability = Math.round(picks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
+  const avgScore = picks.length > 0 ? Math.round(picks.reduce((acc, p) => acc + p.score, 0) / picks.length) : 0;
+
+  return {
+    id: `comb_${Date.now()}`, picks, totalOdds, totalProbability,
+    score: avgScore, risk: 'low', status: 'pending', taken: false,
+  };
+}
+
+export function generateCombinadaFromMatches(selectedMatches: any[]): Combinada {
+  return {
+    id: `comb_${Date.now()}`, picks: [], totalOdds: 1, totalProbability: 0,
+    score: 0, risk: 'low', status: 'pending', taken: false,
+  };
+}
