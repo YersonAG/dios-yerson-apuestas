@@ -1,9 +1,10 @@
 // Motor de Apuestas - El Dios Yerson
-// Motor Matemático v6.4c - Team Style Factors + Límites Especiales Totales
+// Motor Matemático v6.4e - Totales con Fórmula Optimizada
 // FILOSOFÍA: No buscamos el pick más rentable, buscamos el más SEGURO.
-// MEJORAS v6.4c:
-// - Límites de confianza más permisivos para picks de TOTALES (hasta 92%)
-// - OVER 1.5 ahora puede tener más confianza que OVER 2.5
+// MEJORAS v6.4e:
+// - Fórmula diferente para TOTALES: probabilidad tiene 70% del peso
+// - OVER 1.5 ahora pasa el filtro cuando tiene >65% confianza
+// - Totales: límites más permisivos (hasta 92%)
 // MEJORAS v6.4b:
 // - Team Style Factors aplicados a datos de entrada
 // - Knockout Factor -15% para competiciones UEFA
@@ -710,7 +711,7 @@ function logisticCalibration(p: number): number {
   return 1 / (1 + Math.exp(-calibratedLogOdds));
 }
 
-function calibrarProbabilidad(prob: number, volatility: number, posDiff: number): number {
+function calibrarProbabilidad(prob: number, volatility: number, posDiff: number, pickType: string = ''): number {
   // Primero aplicar calibración logística
   let calibrated = logisticCalibration(prob);
   
@@ -727,14 +728,24 @@ function calibrarProbabilidad(prob: number, volatility: number, posDiff: number)
   
   calibrated *= calibrationFactor;
   
-  // Límite máximo
-  let maxProb = posDiff > 10 ? 0.80 : 0.72;
+  // 🆕 v6.4d: Límites diferentes para TOTALES vs 1X2
+  // Los picks de totales son inherentemente más predecibles
+  const isTotalPick = pickType.includes('OVER') || pickType.includes('UNDER');
+  let maxProb: number;
+  
+  if (isTotalPick) {
+    // Totales: límites más permisivos
+    maxProb = posDiff > 10 ? 0.88 : 0.82;  // Hasta 88% para totales
+  } else {
+    // 1X2: límites más estrictos
+    maxProb = posDiff > 10 ? 0.80 : 0.72;
+  }
   
   return Math.min(calibrated, maxProb);
 }
 
 // ==========================================
-// CONFIANZA CALIBRADA v6.4c - Límites especiales para totales
+// CONFIANZA CALIBRADA v6.4d - Límites especiales para totales
 // ==========================================
 function calcularConfianza(
   poissonProb: number, 
@@ -744,21 +755,35 @@ function calcularConfianza(
   posDiff: number = 5,
   pickType: string = '' // 🆕 Para aplicar límites especiales
 ): number {
-  // Aplicar calibración primero
-  const calibratedProb = calibrarProbabilidad(poissonProb, volatility, posDiff);
+  // 🆕 v6.4d: Pasar pickType a calibración para límites diferentes
+  const calibratedProb = calibrarProbabilidad(poissonProb, volatility, posDiff, pickType);
   
   const volatilityPenalty = volatility * 0.18 / 100; // Aumentado de 0.15
   
-  let confidence = (
-    calibratedProb * 0.50 +  // Más peso a la probabilidad calibrada
-    eloProb * 0.28 +
-    formFactor * 0.22
-  ) - volatilityPenalty;
+  // 🆕 v6.4e: Fórmula diferente para TOTALES vs 1X2
+  const isTotalPick = pickType.includes('OVER') || pickType.includes('UNDER');
+  
+  let confidence: number;
+  if (isTotalPick) {
+    // Totales: la probabilidad calibrada es lo más importante
+    // ELO y forma son menos relevantes para totales
+    confidence = (
+      calibratedProb * 0.70 +  // Probabilidad es lo principal
+      eloProb * 0.15 +
+      formFactor * 0.15
+    ) - volatilityPenalty;
+  } else {
+    // 1X2: mantener fórmula equilibrada
+    confidence = (
+      calibratedProb * 0.50 +
+      eloProb * 0.28 +
+      formFactor * 0.22
+    ) - volatilityPenalty;
+  }
   
   // 🆕 v6.4c: LÍMITES ESPECIALES POR TIPO DE PICK
   // Los picks de goles TOTALES son más predecibles que 1X2
   let maxConfidence = 100;
-  const isTotalPick = pickType.includes('OVER') || pickType.includes('UNDER');
   
   if (isTotalPick) {
     // Totales: límites más permisivos
