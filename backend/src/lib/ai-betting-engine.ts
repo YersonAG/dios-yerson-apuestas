@@ -1,13 +1,12 @@
 // Motor de Apuestas - El Dios Yerson
-// Motor Matemático v6.1 - Poisson + Monte Carlo + Dixon-Coles + ELO Dinámico
+// Motor Matemático v6.2 - Poisson + Monte Carlo + Dixon-Coles + ELO Dinámico
 // FILOSOFÍA: No buscamos el pick más rentable, buscamos el más SEGURO.
-// MEJORAS v6.1:
-// - Poisson con attack/defense strength correcto
-// - Dixon-Coles adjustment para empates
-// - Monte Carlo con normalización y límite de goles
-// - Volatilidad mejorada con xGTotal
-// - Filtro de picks: prob > 0.60 Y confidence > 68
-// - Mercado automático según xGTotal
+// MEJORAS v6.2:
+// - Probability Calibration para evitar sobreconfianza
+// - Volatilidad con diferencia de posición y table strength
+// - Castigo fuerte a partidos parejos entre equipos cercanos
+// - Límites realistas: max 75% en partidos normales
+// - Filtro de picks: prob > 0.60 Y confidence > 65
 
 import { MatchForApp } from './football-api';
 
@@ -243,9 +242,9 @@ const CACHE_DURATION = 30 * 60 * 1000;
 const MONTE_CARLO_SIMS = 10000;
 const MAX_GOALS = 6; // Limitado para evitar resultados extremos
 
-// Umbrales mejorados para picks
-const MIN_PROBABILITY = 0.60;
-const MIN_CONFIDENCE = 68;
+// Umbrales mejorados para picks (v6.2 - más permisivo con calibración)
+const MIN_PROBABILITY = 0.58;
+const MIN_CONFIDENCE = 65;
 
 // Cache
 const goalsCache = new Map<string, Map<string, TeamGoals>>();
@@ -484,58 +483,110 @@ function calcularElo(stats: TeamStats, base = 1500): number {
 }
 
 // ==========================================
-// VOLATILIDAD MEJORADA v6.1
+// VOLATILIDAD MEJORADA v6.2 - Con Table Strength
 // ==========================================
 function calcularVolatilidad(poissonResult: PoissonResult, homeStats: TeamStats, awayStats: TeamStats): number {
   let volatility = 0;
   
+  // 🆕 NUEVO: Diferencia de posición en tabla (MUY IMPORTANTE)
+  const posDiff = Math.abs(homeStats.position - awayStats.position);
+  if (posDiff <= 1) volatility += 20;      // Posiciones consecutivas = muy parejo
+  else if (posDiff <= 3) volatility += 12; // Cerca en tabla
+  else if (posDiff <= 5) volatility += 6;  // Algo de diferencia
+  
+  // 🆕 NUEVO: Table Strength Factor (puntos por partido)
+  const homePPG = homeStats.played > 0 ? (homeStats.wins * 3 + homeStats.draws) / homeStats.played : 1.5;
+  const awayPPG = awayStats.played > 0 ? (awayStats.wins * 3 + awayStats.draws) / awayStats.played : 1.5;
+  const tableStrengthDiff = Math.abs(homePPG - awayPPG);
+  if (tableStrengthDiff < 0.2) volatility += 15;  // Nivel muy parecido
+  else if (tableStrengthDiff < 0.5) volatility += 8;
+  
   // ELO cercano = partido parejo
   const eloDiff = Math.abs(calcularElo(homeStats) - calcularElo(awayStats));
-  if (eloDiff < 100) volatility += 20;
-  if (eloDiff < 50) volatility += 15;
+  if (eloDiff < 100) volatility += 15;
+  if (eloDiff < 50) volatility += 10;
   
   // Lambda muy parecidos
   const lambdaDiff = Math.abs(poissonResult.lambdaHome - poissonResult.lambdaAway);
-  if (lambdaDiff < 0.25) volatility += 25;
-  if (lambdaDiff < 0.5) volatility += 15;
+  if (lambdaDiff < 0.25) volatility += 20;
+  if (lambdaDiff < 0.5) volatility += 10;
   
   // Alta probabilidad de empate
-  if (poissonResult.probDraw > 0.30) volatility += 15;
+  if (poissonResult.probDraw > 0.30) volatility += 12;
   
   // Forma inconsistente
   const formVariance = Math.abs(homeStats.formScore - awayStats.formScore);
-  if (formVariance < 0.2) volatility += 10;
+  if (formVariance < 0.2) volatility += 8;
   
-  // NUEVO: xGTotal muy alto o muy bajo = impredecible
+  // xGTotal muy alto o muy bajo = impredecible
   const xGTotal = poissonResult.lambdaHome + poissonResult.lambdaAway;
-  if (xGTotal > 3.5) volatility += 10; // Partido muy ofensivo = caos
-  if (xGTotal < 1.8) volatility += 10; // Partido muy defensivo = empate probable
+  if (xGTotal > 3.5) volatility += 8;
+  if (xGTotal < 1.8) volatility += 8;
   
   return Math.min(100, volatility);
 }
 
 // ==========================================
-// CONFIANZA CALIBRADA v6.1
+// 🆕 PROBABILITY CALIBRATION v6.2
+// ==========================================
+function calibrarProbabilidad(prob: number, volatility: number, posDiff: number): number {
+  // Calibración estilo FiveThirtyEight/Pinnacle
+  // Evita probabilidades infladas en partidos parejos
+  
+  let calibrationFactor = 1.0;
+  
+  // Si equipos muy cercanos en tabla, reducir confianza
+  if (posDiff <= 2) calibrationFactor *= 0.85;      // Reducir 15%
+  else if (posDiff <= 4) calibrationFactor *= 0.92; // Reducir 8%
+  
+  // Si volatilidad alta, reducir más
+  if (volatility > 50) calibrationFactor *= 0.90;
+  else if (volatility > 35) calibrationFactor *= 0.95;
+  
+  // Límite máximo absoluto: 78% para partidos normales
+  // Solo >78% si es un super favorito (posDiff > 10)
+  let maxProb = posDiff > 10 ? 0.82 : 0.75;
+  
+  const calibrated = prob * calibrationFactor;
+  return Math.min(calibrated, maxProb);
+}
+
+// ==========================================
+// CONFIANZA CALIBRADA v6.2 - Con límites realistas
 // ==========================================
 function calcularConfianza(
   poissonProb: number, 
   eloProb: number, 
   formFactor: number,
-  volatility: number
+  volatility: number,
+  posDiff: number = 5
 ): number {
-  const volatilityPenalty = volatility * 0.15 / 100;
+  // Aplicar calibración primero
+  const calibratedProb = calibrarProbabilidad(poissonProb, volatility, posDiff);
   
-  const confidence = (
-    poissonProb * 0.45 +
-    eloProb * 0.30 +
-    formFactor * 0.25
+  const volatilityPenalty = volatility * 0.18 / 100; // Aumentado de 0.15
+  
+  let confidence = (
+    calibratedProb * 0.50 +  // Más peso a la probabilidad calibrada
+    eloProb * 0.28 +
+    formFactor * 0.22
   ) - volatilityPenalty;
   
-  return Math.round(Math.max(0, Math.min(100, confidence * 100)));
+  // 🆕 LÍMITES REALISTAS
+  // Máximo según tipo de partido
+  let maxConfidence = 100;
+  if (posDiff <= 2) maxConfidence = 68;       // Equipos muy parejos: max 68%
+  else if (posDiff <= 4) maxConfidence = 72;  // Algo de diferencia: max 72%
+  else if (posDiff <= 7) maxConfidence = 78;  // Favorito moderado: max 78%
+  // else: favorito claro puede llegar a 85%
+  
+  confidence = Math.min(confidence * 100, maxConfidence);
+  
+  return Math.round(Math.max(0, Math.min(85, confidence))); // Cap absoluto 85%
 }
 
 // ==========================================
-// RAZONAMIENTO MEJORADO v6.1
+// RAZONAMIENTO MEJORADO v6.2
 // ==========================================
 function generarRazones(home: TeamStats, away: TeamStats, tipo: string, poissonResult: PoissonResult): string[] {
   const razones: string[] = [];
@@ -803,7 +854,7 @@ async function extractTeamStats(competitor: any, leagueCode?: string): Promise<T
 }
 
 // ==========================================
-// CALCULAR TODAS LAS APUESTAS
+// CALCULAR TODAS LAS APUESTAS v6.2 - Con posDiff
 // ==========================================
 function calcularTodasLasApuestas(
   home: TeamStats, away: TeamStats, p: PoissonResult, mc: MonteCarloResult,
@@ -811,25 +862,28 @@ function calcularTodasLasApuestas(
 ): BetOption[] {
   const eloProb = 1 / (1 + Math.pow(10, (eloAway - eloHome) / 400));
   const golesPromedio = home.avgGoalsFor + away.avgGoalsFor;
+  
+  // 🆕 Calcular diferencia de posición para calibración
+  const posDiff = Math.abs(home.position - away.position);
 
   return [
-    { type: 'HOME_WIN', probability: mc.homeWin, confidence: calcularConfianza(mc.homeWin, eloProb, home.formScore, volatility), label: 'Gana local', reasoning: generarRazones(home, away, 'HOME', p) },
-    { type: 'AWAY_WIN', probability: mc.awayWin, confidence: calcularConfianza(mc.awayWin, 1 - eloProb, away.formScore, volatility), label: 'Gana visitante', reasoning: generarRazones(home, away, 'AWAY', p) },
-    { type: 'DRAW', probability: mc.draw, confidence: calcularConfianza(mc.draw, 0.3, 0.4, volatility), label: 'Empate', reasoning: generarRazones(home, away, 'DRAW', p) },
-    { type: 'DOUBLE_CHANCE_1X', probability: mc.homeWin + mc.draw, confidence: calcularConfianza(mc.homeWin + mc.draw, Math.min(1, eloProb + 0.15), home.formScore, volatility), label: 'Gana o empata local (1X)', reasoning: generarRazones(home, away, '1X', p) },
-    { type: 'DOUBLE_CHANCE_X2', probability: mc.awayWin + mc.draw, confidence: calcularConfianza(mc.awayWin + mc.draw, Math.min(1, 1 - eloProb + 0.15), away.formScore, volatility), label: 'Gana o empata visitante (X2)', reasoning: generarRazones(home, away, 'X2', p) },
-    { type: 'OVER_15', probability: mc.over15, confidence: calcularConfianza(mc.over15, 0.5, Math.min(1, golesPromedio / 4), volatility), label: 'Más de 1.5 goles', reasoning: generarRazones(home, away, 'OVER_15', p) },
-    { type: 'OVER_25', probability: mc.over25, confidence: calcularConfianza(mc.over25, 0.5, Math.min(1, golesPromedio / 5), volatility), label: 'Más de 2.5 goles', reasoning: generarRazones(home, away, 'OVER_25', p) },
-    { type: 'UNDER_25', probability: mc.under25, confidence: calcularConfianza(mc.under25, 0.5, Math.max(0, 1 - golesPromedio / 5), volatility), label: 'Menos de 2.5 goles', reasoning: generarRazones(home, away, 'UNDER_25', p) },
-    { type: 'UNDER_35', probability: mc.under35, confidence: calcularConfianza(mc.under35, 0.65, Math.max(0, 1 - golesPromedio / 6), volatility), label: 'Menos de 3.5 goles', reasoning: generarRazones(home, away, 'UNDER_35', p) },
-    { type: 'UNDER_45', probability: mc.under45, confidence: calcularConfianza(mc.under45, 0.80, Math.max(0, 1 - golesPromedio / 8), volatility), label: 'Menos de 4.5 goles', reasoning: generarRazones(home, away, 'UNDER_45', p) },
-    { type: 'BTTS_YES', probability: mc.btts, confidence: calcularConfianza(mc.btts, 0.5, Math.min(1, (home.avgGoalsFor + away.avgGoalsFor) / 6), volatility), label: 'Ambos equipos anotan', reasoning: generarRazones(home, away, 'BTTS', p) },
-    { type: 'BTTS_NO', probability: 1 - mc.btts, confidence: calcularConfianza(1 - mc.btts, 0.5, Math.max(0, 1 - (home.avgGoalsFor + away.avgGoalsFor) / 6), volatility), label: 'No anotan ambos equipos', reasoning: generarRazones(home, away, 'BTTS_NO', p) },
+    { type: 'HOME_WIN', probability: mc.homeWin, confidence: calcularConfianza(mc.homeWin, eloProb, home.formScore, volatility, posDiff), label: 'Gana local', reasoning: generarRazones(home, away, 'HOME', p) },
+    { type: 'AWAY_WIN', probability: mc.awayWin, confidence: calcularConfianza(mc.awayWin, 1 - eloProb, away.formScore, volatility, posDiff), label: 'Gana visitante', reasoning: generarRazones(home, away, 'AWAY', p) },
+    { type: 'DRAW', probability: mc.draw, confidence: calcularConfianza(mc.draw, 0.3, 0.4, volatility, posDiff), label: 'Empate', reasoning: generarRazones(home, away, 'DRAW', p) },
+    { type: 'DOUBLE_CHANCE_1X', probability: mc.homeWin + mc.draw, confidence: calcularConfianza(mc.homeWin + mc.draw, Math.min(1, eloProb + 0.15), home.formScore, volatility, posDiff), label: 'Gana o empata local (1X)', reasoning: generarRazones(home, away, '1X', p) },
+    { type: 'DOUBLE_CHANCE_X2', probability: mc.awayWin + mc.draw, confidence: calcularConfianza(mc.awayWin + mc.draw, Math.min(1, 1 - eloProb + 0.15), away.formScore, volatility, posDiff), label: 'Gana o empata visitante (X2)', reasoning: generarRazones(home, away, 'X2', p) },
+    { type: 'OVER_15', probability: mc.over15, confidence: calcularConfianza(mc.over15, 0.5, Math.min(1, golesPromedio / 4), volatility, posDiff), label: 'Más de 1.5 goles', reasoning: generarRazones(home, away, 'OVER_15', p) },
+    { type: 'OVER_25', probability: mc.over25, confidence: calcularConfianza(mc.over25, 0.5, Math.min(1, golesPromedio / 5), volatility, posDiff), label: 'Más de 2.5 goles', reasoning: generarRazones(home, away, 'OVER_25', p) },
+    { type: 'UNDER_25', probability: mc.under25, confidence: calcularConfianza(mc.under25, 0.5, Math.max(0, 1 - golesPromedio / 5), volatility, posDiff), label: 'Menos de 2.5 goles', reasoning: generarRazones(home, away, 'UNDER_25', p) },
+    { type: 'UNDER_35', probability: mc.under35, confidence: calcularConfianza(mc.under35, 0.65, Math.max(0, 1 - golesPromedio / 6), volatility, posDiff), label: 'Menos de 3.5 goles', reasoning: generarRazones(home, away, 'UNDER_35', p) },
+    { type: 'UNDER_45', probability: mc.under45, confidence: calcularConfianza(mc.under45, 0.80, Math.max(0, 1 - golesPromedio / 8), volatility, posDiff), label: 'Menos de 4.5 goles', reasoning: generarRazones(home, away, 'UNDER_45', p) },
+    { type: 'BTTS_YES', probability: mc.btts, confidence: calcularConfianza(mc.btts, 0.5, Math.min(1, (home.avgGoalsFor + away.avgGoalsFor) / 6), volatility, posDiff), label: 'Ambos equipos anotan', reasoning: generarRazones(home, away, 'BTTS', p) },
+    { type: 'BTTS_NO', probability: 1 - mc.btts, confidence: calcularConfianza(1 - mc.btts, 0.5, Math.max(0, 1 - (home.avgGoalsFor + away.avgGoalsFor) / 6), volatility, posDiff), label: 'No anotan ambos equipos', reasoning: generarRazones(home, away, 'BTTS_NO', p) },
   ];
 }
 
 // ==========================================
-// ANÁLISIS PRINCIPAL v6.1
+// ANÁLISIS PRINCIPAL v6.2 - Con Probability Calibration
 // ==========================================
 export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult | null> {
   console.log(`\n🔍 Analizando: ${match.homeTeam} vs ${match.awayTeam}`);
@@ -846,6 +900,7 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
   const eloAway = calcularElo(awayStats);
   const volatility = calcularVolatilidad(poissonResult, homeStats, awayStats);
   const xGTotal = poissonResult.lambdaHome + poissonResult.lambdaAway;
+  const posDiff = Math.abs(homeStats.position - awayStats.position);
 
   const options = calcularTodasLasApuestas(homeStats, awayStats, poissonResult, monteCarloResult, eloHome, eloAway, volatility);
   options.sort((a, b) => b.confidence - a.confidence);
@@ -854,14 +909,15 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
   const safePicks = filtrarPicks(options);
 
   let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'NO_BET';
-  if (bestPick.confidence >= 75) riskLevel = 'LOW';
-  else if (bestPick.confidence >= 68) riskLevel = 'MEDIUM';
-  else if (bestPick.confidence >= 60) riskLevel = 'HIGH';
+  if (bestPick.confidence >= 72) riskLevel = 'LOW';
+  else if (bestPick.confidence >= 65) riskLevel = 'MEDIUM';
+  else if (bestPick.confidence >= 58) riskLevel = 'HIGH';
   else riskLevel = 'NO_BET';
 
   console.log(`✅ Pick: ${bestPick.label} (${bestPick.confidence}% confianza) - Riesgo: ${riskLevel}`);
   console.log(`📊 xG: ${xGTotal.toFixed(2)} (Home: ${poissonResult.lambdaHome.toFixed(2)}, Away: ${poissonResult.lambdaAway.toFixed(2)})`);
   console.log(`🏆 ELO: ${eloHome.toFixed(0)} vs ${eloAway.toFixed(0)} (diff: ${(eloHome - eloAway).toFixed(0)})`);
+  console.log(`📍 Posición: #${homeStats.position} vs #${awayStats.position} (diff: ${posDiff})`);
   console.log(`⚡ Volatilidad: ${volatility}%`);
   console.log(`🎯 Scores: ${monteCarloResult.mostLikelyScores.map(s => `${s.score}(${(s.prob*100).toFixed(1)}%)`).join(', ')}`);
 
@@ -869,7 +925,7 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
     matchId: match.id, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
     league: match.league, matchDate: match.matchDate, pick: bestPick,
     safePicks, allOptions: options, riskLevel,
-    modelVersion: 'poisson-montecarlo-dixon-coles-v6.1',
+    modelVersion: 'poisson-montecarlo-dixon-coles-v6.2',
     poissonData: poissonResult, monteCarloData: monteCarloResult,
     homeStats, awayStats, eloHome, eloAway, volatility, xGTotal,
   };
