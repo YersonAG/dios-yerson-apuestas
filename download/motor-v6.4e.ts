@@ -1,5 +1,5 @@
 // Motor de Apuestas - El Dios Yerson
-// Motor Matemático v6.5 - Fixes Críticos Aplicados
+// Motor Matemático v6.4e - Totales con Fórmula Optimizada
 // FILOSOFÍA: No buscamos el pick más rentable, buscamos el más SEGURO.
 // MEJORAS v6.4e:
 // - Fórmula diferente para TOTALES: probabilidad tiene 70% del peso
@@ -323,6 +323,7 @@ const TEAM_STYLE_FACTORS: Record<string, number> = {
   'benfica': 1.08,
   'porto': 1.07,
   'sporting cp': 1.07,
+  'napoli': 0.85,               // Corregido - ya estaba en defensivo
   'atalanta': 1.12,             // Gasperini = MUY ofensivo
   'atalanta bergamo': 1.12,
   'roma': 0.95,
@@ -340,11 +341,11 @@ const TEAM_STYLE_FACTORS: Record<string, number> = {
 };
 
 const CACHE_DURATION = 30 * 60 * 1000;
-const MONTE_CARLO_SIMS = 5000; // v6.5: 2x más rápido, misma precisión
+const MONTE_CARLO_SIMS = 10000;
 const MAX_GOALS = 6; // Limitado para evitar resultados extremos
 
-// Umbrales mejorados para picks (v6.5 - más estricto para picks seguros)
-const MIN_PROBABILITY = 0.62;
+// Umbrales mejorados para picks (v6.2 - más permisivo con calibración)
+const MIN_PROBABILITY = 0.58;
 const MIN_CONFIDENCE = 65;
 
 // Cache
@@ -494,8 +495,8 @@ function monteCarloFast(lambdaHome: number, lambdaAway: number, sims = MONTE_CAR
     scoreMatrix[key] = (scoreMatrix[key] || 0) + dcWeight;
   }
   
-  // 🆕 v6.5 FIX: Normalizar por el total REAL de pesos (no solo 1X2)
-  const totalWeight = Object.values(scoreMatrix).reduce((a, b) => a + b, 0);
+  // Normalizar por el total de pesos
+  const totalWeight = homeWins + draws + awayWins;
   
   return {
     homeWin: homeWins / totalWeight,
@@ -732,17 +733,12 @@ function calibrarProbabilidad(prob: number, volatility: number, posDiff: number,
   const isTotalPick = pickType.includes('OVER') || pickType.includes('UNDER');
   let maxProb: number;
   
-  // 🆕 v6.5 FIX: Límites más realistas (no tan agresivos)
   if (isTotalPick) {
-    // Totales: límites permisivos pero realistas
-    if (posDiff > 10) maxProb = 0.92;
-    else if (posDiff > 5) maxProb = 0.88;
-    else maxProb = 0.85;
+    // Totales: límites más permisivos
+    maxProb = posDiff > 10 ? 0.88 : 0.82;  // Hasta 88% para totales
   } else {
-    // 1X2: límites estrictos pero no excesivos
-    if (posDiff > 10) maxProb = 0.84;
-    else if (posDiff > 5) maxProb = 0.80;
-    else maxProb = 0.76;
+    // 1X2: límites más estrictos
+    maxProb = posDiff > 10 ? 0.80 : 0.72;
   }
   
   return Math.min(calibrated, maxProb);
@@ -864,33 +860,18 @@ function generarRazones(home: TeamStats, away: TeamStats, tipo: string, poissonR
 // ==========================================
 // FILTRO DE PICKS MEJORADO v6.4 - Con Tiers
 // ==========================================
-function filtrarPicks(options: BetOption[], poissonData?: PoissonResult): BetOption[] {
+function filtrarPicks(options: BetOption[]): BetOption[] {
   return options.filter(o => {
     if (o.probability < MIN_PROBABILITY) return false;
     if (o.confidence < MIN_CONFIDENCE) return false;
-    
-    // 🆕 v6.5 FIX: Validaciones de xG para evitar errores Poisson
-    if (poissonData) {
-      const xGTotal = poissonData.lambdaHome + poissonData.lambdaAway;
-      
-      // OVER 1.5 requiere xG mínimo
-      if (o.type === 'OVER_15' && xGTotal < 1.8) return false;
-      
-      // OVER 2.5 requiere xG suficiente
-      if (o.type === 'OVER_25' && xGTotal < 2.4) return false;
-      
-      // UNDER 2.5 no tiene sentido con xG alto
-      if (o.type === 'UNDER_25' && xGTotal > 2.8) return false;
-    }
-    
     return true;
   });
 }
 
 // 🆕 Función para obtener el mejor pick SIEMPRE
-function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: number, poissonData?: PoissonResult): BetOption {
+function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: number): BetOption {
   // Prioridad 1: Picks que pasan el filtro estricto
-  const safePicks = filtrarPicks(options, poissonData);
+  const safePicks = filtrarPicks(options);
   
   if (safePicks.length > 0) {
     // Ordenar por prioridad según contexto
@@ -967,8 +948,8 @@ const PICK_PRIORITY: Record<string, number> = {
   'BTTS_NO': 65, 'UNDER_45': 50, 'DRAW': 40,
 };
 
-function selectBestPick(options: BetOption[], xGTotal: number, posDiff: number = 5, poissonData?: PoissonResult): BetOption {
-  return getBestPickAlways(options, xGTotal, posDiff, poissonData);
+function selectBestPick(options: BetOption[], xGTotal: number, posDiff: number = 5): BetOption {
+  return getBestPickAlways(options, xGTotal, posDiff);
 }
 
 // ==========================================
@@ -1142,11 +1123,7 @@ function calcularTodasLasApuestas(
   eloHome: number, eloAway: number, volatility: number
 ): BetOption[] {
   const eloProb = 1 / (1 + Math.pow(10, (eloAway - eloHome) / 400));
-  // 🆕 v6.5 FIX: Goles promedio CORRECTO (incluye defense)
-  const golesPromedio = (
-    (home.avgGoalsFor + away.avgGoalsAgainst) / 2 +
-    (away.avgGoalsFor + home.avgGoalsAgainst) / 2
-  );
+  const golesPromedio = home.avgGoalsFor + away.avgGoalsFor;
   
   // 🆕 Calcular diferencia de posición para calibración
   const posDiff = Math.abs(home.position - away.position);
@@ -1177,57 +1154,21 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
 
   const homeStats = await extractTeamStats(match.homeCompetitorRaw, leagueCode);
   const awayStats = await extractTeamStats(match.awayCompetitorRaw, leagueCode);
-  
-  // 🆕 v6.5 FIX: Si no hay datos, usar stats sintéticas (no omitir el partido)
-  const finalHomeStats = homeStats || {
-    teamId: 0,
-    name: match.homeTeam,
-    position: 10,
-    played: 10,
-    wins: 4,
-    draws: 3,
-    losses: 3,
-    goalsFor: 14,
-    goalsAgainst: 14,
-    avgGoalsFor: 1.35,
-    avgGoalsAgainst: 1.35,
-    form: ['D', 'D', 'D', 'D', 'D'],
-    formScore: 0.4
-  };
-  
-  const finalAwayStats = awayStats || {
-    teamId: 0,
-    name: match.awayTeam,
-    position: 10,
-    played: 10,
-    wins: 4,
-    draws: 3,
-    losses: 3,
-    goalsFor: 14,
-    goalsAgainst: 14,
-    avgGoalsFor: 1.35,
-    avgGoalsAgainst: 1.35,
-    form: ['D', 'D', 'D', 'D', 'D'],
-    formScore: 0.4
-  };
-  
-  if (!homeStats || !awayStats) {
-    console.log(`⚠️ Sin datos reales — Usando stats sintéticas`);
-  }
+  if (!homeStats || !awayStats) { console.log(`❌ Sin datos — OMITIDO`); return null; }
 
-  const poissonResult = calcularPoisson(finalHomeStats, finalAwayStats, leagueCode);
+  const poissonResult = calcularPoisson(homeStats, awayStats, leagueCode);
   const monteCarloResult = monteCarloFast(poissonResult.lambdaHome, poissonResult.lambdaAway);
-  const eloHome = calcularElo(finalHomeStats);
-  const eloAway = calcularElo(finalAwayStats);
-  const volatility = calcularVolatilidad(poissonResult, finalHomeStats, finalAwayStats);
+  const eloHome = calcularElo(homeStats);
+  const eloAway = calcularElo(awayStats);
+  const volatility = calcularVolatilidad(poissonResult, homeStats, awayStats);
   const xGTotal = poissonResult.lambdaHome + poissonResult.lambdaAway;
-  const posDiff = Math.abs(finalHomeStats.position - finalAwayStats.position);
+  const posDiff = Math.abs(homeStats.position - awayStats.position);
 
-  const options = calcularTodasLasApuestas(finalHomeStats, finalAwayStats, poissonResult, monteCarloResult, eloHome, eloAway, volatility);
+  const options = calcularTodasLasApuestas(homeStats, awayStats, poissonResult, monteCarloResult, eloHome, eloAway, volatility);
   options.sort((a, b) => b.confidence - a.confidence);
 
-  const bestPick = selectBestPick(options, xGTotal, posDiff, poissonResult);
-  const safePicks = filtrarPicks(options, poissonResult);
+  const bestPick = selectBestPick(options, xGTotal, posDiff);
+  const safePicks = filtrarPicks(options);
 
   // 🆕 Sistema de tiers más granular
   let riskLevel: 'SAFE' | 'LOW' | 'MEDIUM' | 'HIGH';
@@ -1247,7 +1188,7 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
   if (bestPick.note) console.log(`   ${bestPick.note}`);
   console.log(`📊 xG: ${xGTotal.toFixed(2)} (Home: ${poissonResult.lambdaHome.toFixed(2)}, Away: ${poissonResult.lambdaAway.toFixed(2)})`);
   console.log(`🏆 ELO: ${eloHome.toFixed(0)} vs ${eloAway.toFixed(0)} (diff: ${(eloHome - eloAway).toFixed(0)})`);
-  console.log(`📍 Posición: #${finalHomeStats.position} vs #${finalAwayStats.position} (diff: ${posDiff})`);
+  console.log(`📍 Posición: #${homeStats.position} vs #${awayStats.position} (diff: ${posDiff})`);
   console.log(`⚡ Volatilidad: ${volatility}%`);
   console.log(`💰 Value: +${valueBet.toFixed(1)}% | Cuota justa: ${fairOdds.toFixed(2)}`);
   console.log(`🎯 Scores: ${monteCarloResult.mostLikelyScores.map(s => `${s.score}(${(s.prob*100).toFixed(1)}%)`).join(', ')}`);
@@ -1256,9 +1197,9 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
     matchId: match.id, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
     league: match.league, matchDate: match.matchDate, pick: bestPick,
     safePicks, allOptions: options, riskLevel,
-    modelVersion: 'poisson-montecarlo-dixon-coles-v6.5',
+    modelVersion: 'poisson-montecarlo-dixon-coles-v6.3',
     poissonData: poissonResult, monteCarloData: monteCarloResult,
-    homeStats: finalHomeStats, awayStats: finalAwayStats, eloHome, eloAway, volatility, xGTotal,
+    homeStats, awayStats, eloHome, eloAway, volatility, xGTotal,
   };
 }
 
@@ -1290,16 +1231,12 @@ function pickResultToMatchPick(pickResult: PickResult): MatchPick {
   const xGTotal = pickResult.xGTotal || pickResult.poissonData?.lambdaHome && pickResult.poissonData?.lambdaAway 
     ? pickResult.poissonData.lambdaHome + pickResult.poissonData.lambdaAway : 2.7;
   const eloDiff = (pickResult.eloHome && pickResult.eloAway) ? pickResult.eloHome - pickResult.eloAway : 0;
-  // 🆕 v6.5 FIX: Cuota mínima de 1.20 (no menos de 1.0 que no tiene sentido)
-  // Probabilidad maxima de 85% para cuotas realistas
-  const cappedProb = Math.min(pickResult.pick.probability, 0.85);
-  const rawOdds = 1 / cappedProb;
-  const odds = Math.max(1.20, Math.round(rawOdds * 100) / 100);
+  const odds = Math.round((1 / pickResult.pick.probability) * 0.95 * 100) / 100;
 
   return {
     matchId: pickResult.matchId, homeTeam: pickResult.homeTeam, awayTeam: pickResult.awayTeam,
     league: pickResult.league, matchDate: pickResult.matchDate, pick: pickResult.pick.label,
-    odds, probability: cappedProb, analysis: pickResult.pick.reasoning.join(' | '),
+    odds, probability: pickResult.pick.probability, analysis: pickResult.pick.reasoning.join(' | '),
     score: pickResult.pick.confidence, monteCarloProb: pickResult.pick.probability, eloDiff,
     xGTotal: Math.round(xGTotal * 10) / 10, volatility: pickResult.volatility || 100 - pickResult.pick.confidence,
     valueBet: Math.max(0, (pickResult.pick.probability - 0.5) * 100), status: 'pending',
@@ -1330,14 +1267,7 @@ export function analyzeMatchSync(homeTeamName: string, awayTeamName: string, lea
 export async function generateCombinadaFromMatchesAsync(selectedMatches: MatchForApp[]): Promise<Combinada> {
   console.log(`\n🎯 Generando combinada con ${selectedMatches.length} partidos...`);
   const results = await analyzeMatches(selectedMatches);
-  
-  // 🆕 v6.5 FIX: Incluir SAFE, LOW y MEDIUM (no solo LOW y MEDIUM)
-  const goodResults = results.filter(r => 
-    r.riskLevel === 'SAFE' || r.riskLevel === 'LOW' || r.riskLevel === 'MEDIUM'
-  );
-  
-  console.log(`📊 Picks válidos: ${goodResults.length}/${results.length} (SAFE+LOW+MEDIUM)`);
-  
+  const goodResults = results.filter(r => r.riskLevel === 'LOW' || r.riskLevel === 'MEDIUM');
   const picks = goodResults.map(pickResultToMatchPick);
   const totalOdds = Math.round(picks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
   const totalProbability = Math.round(picks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
