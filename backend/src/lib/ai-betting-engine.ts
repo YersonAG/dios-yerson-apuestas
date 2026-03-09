@@ -1,5 +1,5 @@
 // Motor de Apuestas - El Dios Yerson
-// Motor Matemático v6.4e - Totales con Fórmula Optimizada
+// Motor Matemático v6.5 - Fixes Críticos Aplicados
 // FILOSOFÍA: No buscamos el pick más rentable, buscamos el más SEGURO.
 // MEJORAS v6.4e:
 // - Fórmula diferente para TOTALES: probabilidad tiene 70% del peso
@@ -323,7 +323,6 @@ const TEAM_STYLE_FACTORS: Record<string, number> = {
   'benfica': 1.08,
   'porto': 1.07,
   'sporting cp': 1.07,
-  'napoli': 0.85,               // Corregido - ya estaba en defensivo
   'atalanta': 1.12,             // Gasperini = MUY ofensivo
   'atalanta bergamo': 1.12,
   'roma': 0.95,
@@ -344,8 +343,8 @@ const CACHE_DURATION = 30 * 60 * 1000;
 const MONTE_CARLO_SIMS = 10000;
 const MAX_GOALS = 6; // Limitado para evitar resultados extremos
 
-// Umbrales mejorados para picks (v6.2 - más permisivo con calibración)
-const MIN_PROBABILITY = 0.58;
+// Umbrales mejorados para picks (v6.5 - más estricto para picks seguros)
+const MIN_PROBABILITY = 0.62;
 const MIN_CONFIDENCE = 65;
 
 // Cache
@@ -495,8 +494,8 @@ function monteCarloFast(lambdaHome: number, lambdaAway: number, sims = MONTE_CAR
     scoreMatrix[key] = (scoreMatrix[key] || 0) + dcWeight;
   }
   
-  // Normalizar por el total de pesos
-  const totalWeight = homeWins + draws + awayWins;
+  // 🆕 v6.5 FIX: Normalizar por el total REAL de pesos (no solo 1X2)
+  const totalWeight = Object.values(scoreMatrix).reduce((a, b) => a + b, 0);
   
   return {
     homeWin: homeWins / totalWeight,
@@ -733,12 +732,17 @@ function calibrarProbabilidad(prob: number, volatility: number, posDiff: number,
   const isTotalPick = pickType.includes('OVER') || pickType.includes('UNDER');
   let maxProb: number;
   
+  // 🆕 v6.5 FIX: Límites más realistas (no tan agresivos)
   if (isTotalPick) {
-    // Totales: límites más permisivos
-    maxProb = posDiff > 10 ? 0.88 : 0.82;  // Hasta 88% para totales
+    // Totales: límites permisivos pero realistas
+    if (posDiff > 10) maxProb = 0.92;
+    else if (posDiff > 5) maxProb = 0.88;
+    else maxProb = 0.85;
   } else {
-    // 1X2: límites más estrictos
-    maxProb = posDiff > 10 ? 0.80 : 0.72;
+    // 1X2: límites estrictos pero no excesivos
+    if (posDiff > 10) maxProb = 0.84;
+    else if (posDiff > 5) maxProb = 0.80;
+    else maxProb = 0.76;
   }
   
   return Math.min(calibrated, maxProb);
@@ -860,18 +864,33 @@ function generarRazones(home: TeamStats, away: TeamStats, tipo: string, poissonR
 // ==========================================
 // FILTRO DE PICKS MEJORADO v6.4 - Con Tiers
 // ==========================================
-function filtrarPicks(options: BetOption[]): BetOption[] {
+function filtrarPicks(options: BetOption[], poissonData?: PoissonResult): BetOption[] {
   return options.filter(o => {
     if (o.probability < MIN_PROBABILITY) return false;
     if (o.confidence < MIN_CONFIDENCE) return false;
+    
+    // 🆕 v6.5 FIX: Validaciones de xG para evitar errores Poisson
+    if (poissonData) {
+      const xGTotal = poissonData.lambdaHome + poissonData.lambdaAway;
+      
+      // OVER 1.5 requiere xG mínimo
+      if (o.type === 'OVER_15' && xGTotal < 1.8) return false;
+      
+      // OVER 2.5 requiere xG suficiente
+      if (o.type === 'OVER_25' && xGTotal < 2.4) return false;
+      
+      // UNDER 2.5 no tiene sentido con xG alto
+      if (o.type === 'UNDER_25' && xGTotal > 2.8) return false;
+    }
+    
     return true;
   });
 }
 
 // 🆕 Función para obtener el mejor pick SIEMPRE
-function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: number): BetOption {
+function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: number, poissonData?: PoissonResult): BetOption {
   // Prioridad 1: Picks que pasan el filtro estricto
-  const safePicks = filtrarPicks(options);
+  const safePicks = filtrarPicks(options, poissonData);
   
   if (safePicks.length > 0) {
     // Ordenar por prioridad según contexto
@@ -948,8 +967,8 @@ const PICK_PRIORITY: Record<string, number> = {
   'BTTS_NO': 65, 'UNDER_45': 50, 'DRAW': 40,
 };
 
-function selectBestPick(options: BetOption[], xGTotal: number, posDiff: number = 5): BetOption {
-  return getBestPickAlways(options, xGTotal, posDiff);
+function selectBestPick(options: BetOption[], xGTotal: number, posDiff: number = 5, poissonData?: PoissonResult): BetOption {
+  return getBestPickAlways(options, xGTotal, posDiff, poissonData);
 }
 
 // ==========================================
@@ -1123,7 +1142,11 @@ function calcularTodasLasApuestas(
   eloHome: number, eloAway: number, volatility: number
 ): BetOption[] {
   const eloProb = 1 / (1 + Math.pow(10, (eloAway - eloHome) / 400));
-  const golesPromedio = home.avgGoalsFor + away.avgGoalsFor;
+  // 🆕 v6.5 FIX: Goles promedio CORRECTO (incluye defense)
+  const golesPromedio = (
+    (home.avgGoalsFor + away.avgGoalsAgainst) / 2 +
+    (away.avgGoalsFor + home.avgGoalsAgainst) / 2
+  );
   
   // 🆕 Calcular diferencia de posición para calibración
   const posDiff = Math.abs(home.position - away.position);
@@ -1167,8 +1190,8 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
   const options = calcularTodasLasApuestas(homeStats, awayStats, poissonResult, monteCarloResult, eloHome, eloAway, volatility);
   options.sort((a, b) => b.confidence - a.confidence);
 
-  const bestPick = selectBestPick(options, xGTotal, posDiff);
-  const safePicks = filtrarPicks(options);
+  const bestPick = selectBestPick(options, xGTotal, posDiff, poissonResult);
+  const safePicks = filtrarPicks(options, poissonResult);
 
   // 🆕 Sistema de tiers más granular
   let riskLevel: 'SAFE' | 'LOW' | 'MEDIUM' | 'HIGH';
@@ -1197,7 +1220,7 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
     matchId: match.id, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
     league: match.league, matchDate: match.matchDate, pick: bestPick,
     safePicks, allOptions: options, riskLevel,
-    modelVersion: 'poisson-montecarlo-dixon-coles-v6.3',
+    modelVersion: 'poisson-montecarlo-dixon-coles-v6.5',
     poissonData: poissonResult, monteCarloData: monteCarloResult,
     homeStats, awayStats, eloHome, eloAway, volatility, xGTotal,
   };
