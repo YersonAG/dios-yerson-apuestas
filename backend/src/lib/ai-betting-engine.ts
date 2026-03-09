@@ -887,66 +887,45 @@ function filtrarPicks(options: BetOption[], poissonData?: PoissonResult): BetOpt
   });
 }
 
-// 🆕 Función para obtener el mejor pick SIEMPRE
+// 🆕 Función para obtener el mejor pick SIEMPRE (el MÁS SEGURO)
 function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: number, poissonData?: PoissonResult): BetOption {
   // Prioridad 1: Picks que pasan el filtro estricto
   const safePicks = filtrarPicks(options, poissonData);
   
   if (safePicks.length > 0) {
-    // Ordenar por prioridad según contexto
+    // 🆕 v6.5 FIX: Ordenar por CONFIANZA (el más seguro primero)
+    // Filosofía: "No buscamos el más rentable, buscamos el más SEGURO"
     safePicks.sort((a, b) => {
-      // 🆕 v6.4: Si xGTotal bajo o medio-bajo, favorecer UNDER
-      if (xGTotal < 2.5) {
-        if (a.type === 'UNDER_25' || a.type === 'UNDER_35') return -1;
-        if (b.type === 'UNDER_25' || b.type === 'UNDER_35') return 1;
-      }
-      // Si xGTotal alto, favorecer OVER
-      if (xGTotal > 3.0) {
-        if (a.type === 'OVER_15' || a.type === 'OVER_25') return -1;
-        if (b.type === 'OVER_15' || b.type === 'OVER_25') return 1;
-      }
-      // Si equipos parejos, favorecer totales sobre 1X2
-      if (posDiff <= 3) {
-        const isTotalA = a.type.includes('OVER') || a.type.includes('UNDER');
-        const isTotalB = b.type.includes('OVER') || b.type.includes('UNDER');
-        if (isTotalA && !isTotalB) return -1;
-        if (!isTotalA && isTotalB) return 1;
-      }
-      // Orden normal por prioridad
+      // Si la diferencia de confianza es significativa (>5%), elegir el más seguro
+      const confDiff = b.confidence - a.confidence;
+      if (Math.abs(confDiff) > 5) return confDiff;
+      
+      // Si confianza similar, usar prioridad por tipo
       const priorityA = PICK_PRIORITY[a.type] || 50;
       const priorityB = PICK_PRIORITY[b.type] || 50;
       if (priorityA !== priorityB) return priorityB - priorityA;
-      return b.confidence - a.confidence;
+      
+      // Si todo igual, mayor probabilidad
+      return b.probability - a.probability;
     });
     
     return { ...safePicks[0], note: undefined };
   }
   
   // Prioridad 2: Si nada pasa el filtro, buscar el mejor disponible
-  // En partidos parejos, preferir totales de goles
+  // Ordenar por confianza (el más seguro)
   const sortedOptions = [...options].sort((a, b) => {
-    // Si equipos muy parejos (posDiff <= 3), priorizar UNDER/OVER
-    if (posDiff <= 3) {
-      const isTotalA = a.type.includes('OVER') || a.type.includes('UNDER');
-      const isTotalB = b.type.includes('OVER') || b.type.includes('UNDER');
-      if (isTotalA && !isTotalB) return -1;
-      if (!isTotalA && isTotalB) return 1;
-    }
+    // Primero por confianza
+    const confDiff = b.confidence - a.confidence;
+    if (Math.abs(confDiff) > 3) return confDiff;
     
-    // 🆕 v6.4: Si xGTotal bajo o medio-bajo, priorizar UNDER
-    if (xGTotal < 2.6) {
-      if (a.type === 'UNDER_25' || a.type === 'UNDER_35') return -1;
-      if (b.type === 'UNDER_25' || b.type === 'UNDER_35') return 1;
-    }
+    // Si confianza similar, priorizar totales (más predecibles que 1X2)
+    const isTotalA = a.type.includes('OVER') || a.type.includes('UNDER');
+    const isTotalB = b.type.includes('OVER') || b.type.includes('UNDER');
+    if (isTotalA && !isTotalB) return -1;
+    if (!isTotalA && isTotalB) return 1;
     
-    // Si xGTotal alto, priorizar OVER
-    if (xGTotal > 2.8) {
-      if (a.type === 'OVER_15') return -1;
-      if (b.type === 'OVER_15') return 1;
-    }
-    
-    // Por defecto, ordenar por confianza
-    return b.confidence - a.confidence;
+    return b.probability - a.probability;
   });
   
   const bestFallback = sortedOptions[0];
