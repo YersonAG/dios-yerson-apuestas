@@ -1,6 +1,11 @@
 // Motor de Apuestas - El Dios Yerson
-// Motor Matemático v6.3 - Poisson + Monte Carlo + Dixon-Coles + ELO Dinámico
+// Motor Matemático v6.4 - Team Style Factors + Corrección Competiciones
 // FILOSOFÍA: No buscamos el pick más rentable, buscamos el más SEGURO.
+// MEJORAS v6.4:
+// - Team Style Factors (equipos defensivos/ofensivos conocidos)
+// - Factor Champions League reducido (eliminatorias más cerradas)
+// - Selector inteligente UNDER cuando xG bajo
+// - Ajuste por contexto de competición
 // MEJORAS v6.3:
 // - Monte Carlo con Dixon-Coles integrado (empates calibrados)
 // - ELO basado en PPG real (no solo posición)
@@ -184,9 +189,9 @@ const LEAGUE_GOAL_FACTORS: Record<string, number> = {
   'swe.1': 1.45,      // Allsvenskan
   
   // === COMPETICIONES UEFA ===
-  'uefa.champions': 1.42,  // Champions League
-  'uefa.europa': 1.38,     // Europa League
-  'uefa.conference': 1.35, // Conference League
+  'uefa.champions': 1.25,  // Champions League - CORREGIDO: eliminatorias más cerradas
+  'uefa.europa': 1.22,     // Europa League - CORREGIDO
+  'uefa.conference': 1.20, // Conference League - CORREGIDO
   
   // === SUDAMÉRICA ===
   'bra.1': 1.42,      // Brasileirão
@@ -238,6 +243,97 @@ const HOME_ADVANTAGE_FACTORS: Record<string, number> = {
 
 // Dixon-Coles adjustment para empates (mejora precisión en marcadores bajos)
 const DIXON_COLES_RHO = 0.06; // Parámetro de correlación
+
+// ==========================================
+// 🆕 TEAM STYLE FACTORS v6.4
+// ==========================================
+// Factor < 1.0 = equipo DEFENSIVO (reduce xG)
+// Factor > 1.0 = equipo OFENSIVO (aumenta xG)
+const TEAM_STYLE_FACTORS: Record<string, number> = {
+  // === EQUIPOS MUY DEFENSIVOS (reducen goles ~20-25%) ===
+  'atletico madrid': 0.75,      // Simeone = ultra defensivo
+  'atlético madrid': 0.75,
+  'atletico': 0.75,
+  'newcastle united': 0.80,     // Howe = muy organizado defensivamente
+  'newcastle': 0.80,
+  'inter miami': 0.78,          // MLS defensivo
+  'inter milan': 0.82,          // Serie A defensivo
+  'internazionale': 0.82,
+  'juventus': 0.83,             // Históricamente defensivo
+  'napoli': 0.85,               // Italiano
+  'sevilla': 0.82,              // Defensivo en Europa
+  'villarreal': 0.83,           // El submarino amarillo
+  
+  // === EQUIPOS DEFENSIVOS (reducen goles ~10-15%) ===
+  'real sociedad': 0.88,
+  'athletic bilbao': 0.87,
+  'athletic club': 0.87,
+  'real betis': 0.88,
+  'sassuolo': 0.88,
+  'torino': 0.87,
+  'freiburg': 0.85,
+  'mainz': 0.86,
+  'getafe': 0.78,               // MUY defensivo
+  'cadiz': 0.85,
+  'cádiz': 0.85,
+  'leganes': 0.85,
+  'léganes': 0.85,
+  'wolves': 0.85,
+  'wolverhampton': 0.85,
+  'brentford': 0.87,
+  'brighton': 0.88,
+  'crystal palace': 0.86,
+  'everton': 0.84,
+  
+  // === EQUIPOS NEUTROS (factor 1.0) ===
+  // No listados = 1.0
+  
+  // === EQUIPOS OFENSIVOS (aumentan goles ~10-20%) ===
+  'bayern munich': 1.18,        // MUY ofensivo
+  'bayern': 1.18,
+  'borussia dortmund': 1.15,
+  'dortmund': 1.15,
+  'rb leipzig': 1.12,
+  'leipzig': 1.12,
+  'leverkusen': 1.14,
+  'bayer leverkusen': 1.14,
+  'manchester city': 1.15,      // Guardiola = posesión y goles
+  'man city': 1.15,
+  'liverpool': 1.12,            // Klopp = high press
+  'arsenal': 1.10,              // Arteta = ofensivo
+  'chelsea': 1.05,
+  'tottenham': 1.08,            // Ange = ofensivo
+  'tottenham hotspur': 1.08,
+  'spurs': 1.08,
+  'barcelona': 1.08,            //年轻团队 ofensivo
+  'barca': 1.08,
+  'real madrid': 1.10,          // Vinicius, Bellingham, Mbappé
+  'madrid': 1.10,
+  'psg': 1.15,                  // MUY ofensivo
+  'paris saint-germain': 1.15,
+  'paris': 1.15,
+  'ajax': 1.12,
+  'psv': 1.10,
+  'feyenoord': 1.10,
+  'benfica': 1.08,
+  'porto': 1.07,
+  'sporting cp': 1.07,
+  'napoli': 0.85,               // Corregido - ya estaba en defensivo
+  'atalanta': 1.12,             // Gasperini = MUY ofensivo
+  'atalanta bergamo': 1.12,
+  'roma': 0.95,
+  'lazio': 0.92,
+  'ac milan': 0.95,
+  'milan': 0.95,
+  
+  // === SUDAMÉRICA ===
+  'flamengo': 1.10,
+  'palmeiras': 1.05,
+  'river plate': 1.08,
+  'boca juniors': 0.92,
+  'boca': 0.92,
+  'argentinos juniors': 0.88,
+};
 
 const CACHE_DURATION = 30 * 60 * 1000;
 const MONTE_CARLO_SIMS = 10000;
@@ -417,17 +513,40 @@ function monteCarloFast(lambdaHome: number, lambdaAway: number, sims = MONTE_CAR
 }
 
 // ==========================================
-// POISSON MEJORADO v6.1 - Attack/Defense Strength
+// POISSON MEJORADO v6.4 - Team Style Factors
 // ==========================================
+function getTeamStyleFactor(teamName: string): number {
+  const normalized = teamName.toLowerCase().trim();
+  // Buscar coincidencia exacta primero
+  if (TEAM_STYLE_FACTORS[normalized]) return TEAM_STYLE_FACTORS[normalized];
+  // Buscar coincidencia parcial
+  for (const [key, factor] of Object.entries(TEAM_STYLE_FACTORS)) {
+    if (normalized.includes(key) || key.includes(normalized)) return factor;
+  }
+  return 1.0; // Neutro por defecto
+}
+
 function calcularPoisson(homeStats: TeamStats, awayStats: TeamStats, leagueCode: string): PoissonResult {
   const leagueFactor = LEAGUE_GOAL_FACTORS[leagueCode] || 1.35;
   const homeAdvantage = HOME_ADVANTAGE_FACTORS[leagueCode] || HOME_ADVANTAGE_FACTORS['default'];
   
-  // Attack/Defense Strength (método profesional)
-  const attackHome = homeStats.avgGoalsFor / leagueFactor;
-  const defenseHome = homeStats.avgGoalsAgainst / leagueFactor;
-  const attackAway = awayStats.avgGoalsFor / leagueFactor;
-  const defenseAway = awayStats.avgGoalsAgainst / leagueFactor;
+  // 🆕 v6.4: Team Style Factors - Aplicar a DATOS DE ENTRADA
+  const homeStyleFactor = getTeamStyleFactor(homeStats.name);
+  const awayStyleFactor = getTeamStyleFactor(awayStats.name);
+  
+  // Ajustar promedios de goles según estilo del equipo
+  // Equipos defensivos: sus datos de goles están inflados, ajustar hacia abajo
+  // Equipos ofensivos: sus datos son más confiables, ligero ajuste hacia arriba
+  const adjustedAvgGoalsForHome = homeStats.avgGoalsFor * homeStyleFactor;
+  const adjustedAvgGoalsAgainstHome = homeStats.avgGoalsAgainst * homeStyleFactor;
+  const adjustedAvgGoalsForAway = awayStats.avgGoalsFor * awayStyleFactor;
+  const adjustedAvgGoalsAgainstAway = awayStats.avgGoalsAgainst * awayStyleFactor;
+  
+  // Attack/Defense Strength con datos ajustados
+  const attackHome = adjustedAvgGoalsForHome / leagueFactor;
+  const defenseHome = adjustedAvgGoalsAgainstHome / leagueFactor;
+  const attackAway = adjustedAvgGoalsForAway / leagueFactor;
+  const defenseAway = adjustedAvgGoalsAgainstAway / leagueFactor;
   
   // Lambda con attack × defense × league avg
   let lambdaHome = attackHome * defenseAway * leagueFactor * homeAdvantage;
@@ -439,6 +558,13 @@ function calcularPoisson(homeStats: TeamStats, awayStats: TeamStats, leagueCode:
   
   lambdaHome *= formAdjustmentHome;
   lambdaAway *= formAdjustmentAway;
+  
+  // 🆕 v6.4b: Knockout Round Factor para competiciones europeas
+  // En eliminatorias, los equipos juegan más conservadoramente
+  const isEuropeanCup = ['uefa.champions', 'uefa.europa', 'uefa.conference'].includes(leagueCode);
+  const knockoutFactor = isEuropeanCup ? 0.85 : 1.0; // Reduce xG 15% en eliminatorias europeas
+  lambdaHome *= knockoutFactor;
+  lambdaAway *= knockoutFactor;
   
   // Matriz Poisson con Dixon-Coles adjustment
   const matrix: number[][] = [];
@@ -483,8 +609,9 @@ function calcularPoisson(homeStats: TeamStats, awayStats: TeamStats, leagueCode:
     }
   }
   
-  console.log(`🔢 Poisson v6.3: λHome=${lambdaHome.toFixed(2)}, λAway=${lambdaAway.toFixed(2)}, xG=${(lambdaHome + lambdaAway).toFixed(2)}`);
+  console.log(`🔢 Poisson v6.4b: λHome=${lambdaHome.toFixed(2)}, λAway=${lambdaAway.toFixed(2)}, xG=${(lambdaHome + lambdaAway).toFixed(2)}`);
   console.log(`📊 Attack: Home=${attackHome.toFixed(2)}, Away=${attackAway.toFixed(2)} | Defense: Home=${defenseHome.toFixed(2)}, Away=${defenseAway.toFixed(2)}`);
+  console.log(`🎨 Style Factors: ${homeStats.name}=${homeStyleFactor.toFixed(2)}, ${awayStats.name}=${awayStyleFactor.toFixed(2)} | Knockout: ${isEuropeanCup ? 'Yes (-15%)' : 'No'}`);
   
   return { 
     lambdaHome, lambdaAway,
@@ -706,8 +833,8 @@ function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: numbe
   if (safePicks.length > 0) {
     // Ordenar por prioridad según contexto
     safePicks.sort((a, b) => {
-      // Si xGTotal bajo, favorecer UNDER
-      if (xGTotal < 2.2) {
+      // 🆕 v6.4: Si xGTotal bajo o medio-bajo, favorecer UNDER
+      if (xGTotal < 2.5) {
         if (a.type === 'UNDER_25' || a.type === 'UNDER_35') return -1;
         if (b.type === 'UNDER_25' || b.type === 'UNDER_35') return 1;
       }
@@ -744,8 +871,8 @@ function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: numbe
       if (!isTotalA && isTotalB) return 1;
     }
     
-    // Si xGTotal bajo, priorizar UNDER
-    if (xGTotal < 2.3) {
+    // 🆕 v6.4: Si xGTotal bajo o medio-bajo, priorizar UNDER
+    if (xGTotal < 2.6) {
       if (a.type === 'UNDER_25' || a.type === 'UNDER_35') return -1;
       if (b.type === 'UNDER_25' || b.type === 'UNDER_35') return 1;
     }
@@ -773,8 +900,8 @@ function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: numbe
 // SELECTOR DE PICKS v6.4 - USA getBestPickAlways
 // ==========================================
 const PICK_PRIORITY: Record<string, number> = {
-  'OVER_15': 100, 'UNDER_35': 95, 'DOUBLE_CHANCE_1X': 90, 'DOUBLE_CHANCE_X2': 90,
-  'OVER_25': 85, 'UNDER_25': 80, 'BTTS_YES': 75, 'HOME_WIN': 70, 'AWAY_WIN': 70,
+  'OVER_15': 100, 'UNDER_35': 98, 'UNDER_25': 92, 'DOUBLE_CHANCE_1X': 90, 'DOUBLE_CHANCE_X2': 90,
+  'OVER_25': 80, 'BTTS_YES': 75, 'HOME_WIN': 70, 'AWAY_WIN': 70,
   'BTTS_NO': 65, 'UNDER_45': 50, 'DRAW': 40,
 };
 
