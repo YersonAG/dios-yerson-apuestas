@@ -1,11 +1,15 @@
 // Motor de Apuestas - El Dios Yerson
-// Motor Matemático v6.4 - Team Style Factors + Corrección Competiciones
+// Motor Matemático v6.4c - Team Style Factors + Límites Especiales Totales
 // FILOSOFÍA: No buscamos el pick más rentable, buscamos el más SEGURO.
+// MEJORAS v6.4c:
+// - Límites de confianza más permisivos para picks de TOTALES (hasta 92%)
+// - OVER 1.5 ahora puede tener más confianza que OVER 2.5
+// MEJORAS v6.4b:
+// - Team Style Factors aplicados a datos de entrada
+// - Knockout Factor -15% para competiciones UEFA
 // MEJORAS v6.4:
-// - Team Style Factors (equipos defensivos/ofensivos conocidos)
+// - Team Style Factors: equipos defensivos/ofensivos conocidos
 // - Factor Champions League reducido (eliminatorias más cerradas)
-// - Selector inteligente UNDER cuando xG bajo
-// - Ajuste por contexto de competición
 // MEJORAS v6.3:
 // - Monte Carlo con Dixon-Coles integrado (empates calibrados)
 // - ELO basado en PPG real (no solo posición)
@@ -730,14 +734,15 @@ function calibrarProbabilidad(prob: number, volatility: number, posDiff: number)
 }
 
 // ==========================================
-// CONFIANZA CALIBRADA v6.2 - Con límites realistas
+// CONFIANZA CALIBRADA v6.4c - Límites especiales para totales
 // ==========================================
 function calcularConfianza(
   poissonProb: number, 
   eloProb: number, 
   formFactor: number,
   volatility: number,
-  posDiff: number = 5
+  posDiff: number = 5,
+  pickType: string = '' // 🆕 Para aplicar límites especiales
 ): number {
   // Aplicar calibración primero
   const calibratedProb = calibrarProbabilidad(poissonProb, volatility, posDiff);
@@ -750,17 +755,30 @@ function calcularConfianza(
     formFactor * 0.22
   ) - volatilityPenalty;
   
-  // 🆕 LÍMITES REALISTAS
-  // Máximo según tipo de partido
+  // 🆕 v6.4c: LÍMITES ESPECIALES POR TIPO DE PICK
+  // Los picks de goles TOTALES son más predecibles que 1X2
   let maxConfidence = 100;
-  if (posDiff <= 2) maxConfidence = 68;       // Equipos muy parejos: max 68%
-  else if (posDiff <= 4) maxConfidence = 72;  // Algo de diferencia: max 72%
-  else if (posDiff <= 7) maxConfidence = 78;  // Favorito moderado: max 78%
-  // else: favorito claro puede llegar a 85%
+  const isTotalPick = pickType.includes('OVER') || pickType.includes('UNDER');
+  
+  if (isTotalPick) {
+    // Totales: límites más permisivos
+    if (posDiff <= 2) maxConfidence = 75;
+    else if (posDiff <= 4) maxConfidence = 80;
+    else if (posDiff <= 7) maxConfidence = 85;
+    // else: puede llegar a 92%
+  } else {
+    // 1X2 y otros: límites más estrictos
+    if (posDiff <= 2) maxConfidence = 68;
+    else if (posDiff <= 4) maxConfidence = 72;
+    else if (posDiff <= 7) maxConfidence = 78;
+    // else: puede llegar a 85%
+  }
   
   confidence = Math.min(confidence * 100, maxConfidence);
   
-  return Math.round(Math.max(0, Math.min(85, confidence))); // Cap absoluto 85%
+  // 🆕 Cap absoluto: 92% para totales, 85% para 1X2
+  const absoluteCap = isTotalPick ? 92 : 85;
+  return Math.round(Math.max(0, Math.min(absoluteCap, confidence)));
 }
 
 // ==========================================
@@ -1086,18 +1104,18 @@ function calcularTodasLasApuestas(
   const posDiff = Math.abs(home.position - away.position);
 
   return [
-    { type: 'HOME_WIN', probability: mc.homeWin, confidence: calcularConfianza(mc.homeWin, eloProb, home.formScore, volatility, posDiff), label: 'Gana local', reasoning: generarRazones(home, away, 'HOME', p) },
-    { type: 'AWAY_WIN', probability: mc.awayWin, confidence: calcularConfianza(mc.awayWin, 1 - eloProb, away.formScore, volatility, posDiff), label: 'Gana visitante', reasoning: generarRazones(home, away, 'AWAY', p) },
-    { type: 'DRAW', probability: mc.draw, confidence: calcularConfianza(mc.draw, 0.3, 0.4, volatility, posDiff), label: 'Empate', reasoning: generarRazones(home, away, 'DRAW', p) },
-    { type: 'DOUBLE_CHANCE_1X', probability: mc.homeWin + mc.draw, confidence: calcularConfianza(mc.homeWin + mc.draw, Math.min(1, eloProb + 0.15), home.formScore, volatility, posDiff), label: 'Gana o empata local (1X)', reasoning: generarRazones(home, away, '1X', p) },
-    { type: 'DOUBLE_CHANCE_X2', probability: mc.awayWin + mc.draw, confidence: calcularConfianza(mc.awayWin + mc.draw, Math.min(1, 1 - eloProb + 0.15), away.formScore, volatility, posDiff), label: 'Gana o empata visitante (X2)', reasoning: generarRazones(home, away, 'X2', p) },
-    { type: 'OVER_15', probability: mc.over15, confidence: calcularConfianza(mc.over15, 0.5, Math.min(1, golesPromedio / 4), volatility, posDiff), label: 'Más de 1.5 goles', reasoning: generarRazones(home, away, 'OVER_15', p) },
-    { type: 'OVER_25', probability: mc.over25, confidence: calcularConfianza(mc.over25, 0.5, Math.min(1, golesPromedio / 5), volatility, posDiff), label: 'Más de 2.5 goles', reasoning: generarRazones(home, away, 'OVER_25', p) },
-    { type: 'UNDER_25', probability: mc.under25, confidence: calcularConfianza(mc.under25, 0.5, Math.max(0, 1 - golesPromedio / 5), volatility, posDiff), label: 'Menos de 2.5 goles', reasoning: generarRazones(home, away, 'UNDER_25', p) },
-    { type: 'UNDER_35', probability: mc.under35, confidence: calcularConfianza(mc.under35, 0.65, Math.max(0, 1 - golesPromedio / 6), volatility, posDiff), label: 'Menos de 3.5 goles', reasoning: generarRazones(home, away, 'UNDER_35', p) },
-    { type: 'UNDER_45', probability: mc.under45, confidence: calcularConfianza(mc.under45, 0.80, Math.max(0, 1 - golesPromedio / 8), volatility, posDiff), label: 'Menos de 4.5 goles', reasoning: generarRazones(home, away, 'UNDER_45', p) },
-    { type: 'BTTS_YES', probability: mc.btts, confidence: calcularConfianza(mc.btts, 0.5, Math.min(1, (home.avgGoalsFor + away.avgGoalsFor) / 6), volatility, posDiff), label: 'Ambos equipos anotan', reasoning: generarRazones(home, away, 'BTTS', p) },
-    { type: 'BTTS_NO', probability: 1 - mc.btts, confidence: calcularConfianza(1 - mc.btts, 0.5, Math.max(0, 1 - (home.avgGoalsFor + away.avgGoalsFor) / 6), volatility, posDiff), label: 'No anotan ambos equipos', reasoning: generarRazones(home, away, 'BTTS_NO', p) },
+    { type: 'HOME_WIN', probability: mc.homeWin, confidence: calcularConfianza(mc.homeWin, eloProb, home.formScore, volatility, posDiff, 'HOME_WIN'), label: 'Gana local', reasoning: generarRazones(home, away, 'HOME', p) },
+    { type: 'AWAY_WIN', probability: mc.awayWin, confidence: calcularConfianza(mc.awayWin, 1 - eloProb, away.formScore, volatility, posDiff, 'AWAY_WIN'), label: 'Gana visitante', reasoning: generarRazones(home, away, 'AWAY', p) },
+    { type: 'DRAW', probability: mc.draw, confidence: calcularConfianza(mc.draw, 0.3, 0.4, volatility, posDiff, 'DRAW'), label: 'Empate', reasoning: generarRazones(home, away, 'DRAW', p) },
+    { type: 'DOUBLE_CHANCE_1X', probability: mc.homeWin + mc.draw, confidence: calcularConfianza(mc.homeWin + mc.draw, Math.min(1, eloProb + 0.15), home.formScore, volatility, posDiff, 'DOUBLE_CHANCE_1X'), label: 'Gana o empata local (1X)', reasoning: generarRazones(home, away, '1X', p) },
+    { type: 'DOUBLE_CHANCE_X2', probability: mc.awayWin + mc.draw, confidence: calcularConfianza(mc.awayWin + mc.draw, Math.min(1, 1 - eloProb + 0.15), away.formScore, volatility, posDiff, 'DOUBLE_CHANCE_X2'), label: 'Gana o empata visitante (X2)', reasoning: generarRazones(home, away, 'X2', p) },
+    { type: 'OVER_15', probability: mc.over15, confidence: calcularConfianza(mc.over15, 0.5, Math.min(1, golesPromedio / 4), volatility, posDiff, 'OVER_15'), label: 'Más de 1.5 goles', reasoning: generarRazones(home, away, 'OVER_15', p) },
+    { type: 'OVER_25', probability: mc.over25, confidence: calcularConfianza(mc.over25, 0.5, Math.min(1, golesPromedio / 5), volatility, posDiff, 'OVER_25'), label: 'Más de 2.5 goles', reasoning: generarRazones(home, away, 'OVER_25', p) },
+    { type: 'UNDER_25', probability: mc.under25, confidence: calcularConfianza(mc.under25, 0.5, Math.max(0, 1 - golesPromedio / 5), volatility, posDiff, 'UNDER_25'), label: 'Menos de 2.5 goles', reasoning: generarRazones(home, away, 'UNDER_25', p) },
+    { type: 'UNDER_35', probability: mc.under35, confidence: calcularConfianza(mc.under35, 0.65, Math.max(0, 1 - golesPromedio / 6), volatility, posDiff, 'UNDER_35'), label: 'Menos de 3.5 goles', reasoning: generarRazones(home, away, 'UNDER_35', p) },
+    { type: 'UNDER_45', probability: mc.under45, confidence: calcularConfianza(mc.under45, 0.80, Math.max(0, 1 - golesPromedio / 8), volatility, posDiff, 'UNDER_45'), label: 'Menos de 4.5 goles', reasoning: generarRazones(home, away, 'UNDER_45', p) },
+    { type: 'BTTS_YES', probability: mc.btts, confidence: calcularConfianza(mc.btts, 0.5, Math.min(1, (home.avgGoalsFor + away.avgGoalsFor) / 6), volatility, posDiff, 'BTTS_YES'), label: 'Ambos equipos anotan', reasoning: generarRazones(home, away, 'BTTS', p) },
+    { type: 'BTTS_NO', probability: 1 - mc.btts, confidence: calcularConfianza(1 - mc.btts, 0.5, Math.max(0, 1 - (home.avgGoalsFor + away.avgGoalsFor) / 6), volatility, posDiff, 'BTTS_NO'), label: 'No anotan ambos equipos', reasoning: generarRazones(home, away, 'BTTS_NO', p) },
   ];
 }
 
