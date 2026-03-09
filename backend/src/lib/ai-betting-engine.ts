@@ -1177,17 +1177,53 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
 
   const homeStats = await extractTeamStats(match.homeCompetitorRaw, leagueCode);
   const awayStats = await extractTeamStats(match.awayCompetitorRaw, leagueCode);
-  if (!homeStats || !awayStats) { console.log(`❌ Sin datos — OMITIDO`); return null; }
+  
+  // 🆕 v6.5 FIX: Si no hay datos, usar stats sintéticas (no omitir el partido)
+  const finalHomeStats = homeStats || {
+    teamId: 0,
+    name: match.homeTeam,
+    position: 10,
+    played: 10,
+    wins: 4,
+    draws: 3,
+    losses: 3,
+    goalsFor: 14,
+    goalsAgainst: 14,
+    avgGoalsFor: 1.35,
+    avgGoalsAgainst: 1.35,
+    form: ['D', 'D', 'D', 'D', 'D'],
+    formScore: 0.4
+  };
+  
+  const finalAwayStats = awayStats || {
+    teamId: 0,
+    name: match.awayTeam,
+    position: 10,
+    played: 10,
+    wins: 4,
+    draws: 3,
+    losses: 3,
+    goalsFor: 14,
+    goalsAgainst: 14,
+    avgGoalsFor: 1.35,
+    avgGoalsAgainst: 1.35,
+    form: ['D', 'D', 'D', 'D', 'D'],
+    formScore: 0.4
+  };
+  
+  if (!homeStats || !awayStats) {
+    console.log(`⚠️ Sin datos reales — Usando stats sintéticas`);
+  }
 
-  const poissonResult = calcularPoisson(homeStats, awayStats, leagueCode);
+  const poissonResult = calcularPoisson(finalHomeStats, finalAwayStats, leagueCode);
   const monteCarloResult = monteCarloFast(poissonResult.lambdaHome, poissonResult.lambdaAway);
-  const eloHome = calcularElo(homeStats);
-  const eloAway = calcularElo(awayStats);
-  const volatility = calcularVolatilidad(poissonResult, homeStats, awayStats);
+  const eloHome = calcularElo(finalHomeStats);
+  const eloAway = calcularElo(finalAwayStats);
+  const volatility = calcularVolatilidad(poissonResult, finalHomeStats, finalAwayStats);
   const xGTotal = poissonResult.lambdaHome + poissonResult.lambdaAway;
-  const posDiff = Math.abs(homeStats.position - awayStats.position);
+  const posDiff = Math.abs(finalHomeStats.position - finalAwayStats.position);
 
-  const options = calcularTodasLasApuestas(homeStats, awayStats, poissonResult, monteCarloResult, eloHome, eloAway, volatility);
+  const options = calcularTodasLasApuestas(finalHomeStats, finalAwayStats, poissonResult, monteCarloResult, eloHome, eloAway, volatility);
   options.sort((a, b) => b.confidence - a.confidence);
 
   const bestPick = selectBestPick(options, xGTotal, posDiff, poissonResult);
@@ -1211,7 +1247,7 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
   if (bestPick.note) console.log(`   ${bestPick.note}`);
   console.log(`📊 xG: ${xGTotal.toFixed(2)} (Home: ${poissonResult.lambdaHome.toFixed(2)}, Away: ${poissonResult.lambdaAway.toFixed(2)})`);
   console.log(`🏆 ELO: ${eloHome.toFixed(0)} vs ${eloAway.toFixed(0)} (diff: ${(eloHome - eloAway).toFixed(0)})`);
-  console.log(`📍 Posición: #${homeStats.position} vs #${awayStats.position} (diff: ${posDiff})`);
+  console.log(`📍 Posición: #${finalHomeStats.position} vs #${finalAwayStats.position} (diff: ${posDiff})`);
   console.log(`⚡ Volatilidad: ${volatility}%`);
   console.log(`💰 Value: +${valueBet.toFixed(1)}% | Cuota justa: ${fairOdds.toFixed(2)}`);
   console.log(`🎯 Scores: ${monteCarloResult.mostLikelyScores.map(s => `${s.score}(${(s.prob*100).toFixed(1)}%)`).join(', ')}`);
@@ -1222,7 +1258,7 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
     safePicks, allOptions: options, riskLevel,
     modelVersion: 'poisson-montecarlo-dixon-coles-v6.5',
     poissonData: poissonResult, monteCarloData: monteCarloResult,
-    homeStats, awayStats, eloHome, eloAway, volatility, xGTotal,
+    homeStats: finalHomeStats, awayStats: finalAwayStats, eloHome, eloAway, volatility, xGTotal,
   };
 }
 
@@ -1290,7 +1326,14 @@ export function analyzeMatchSync(homeTeamName: string, awayTeamName: string, lea
 export async function generateCombinadaFromMatchesAsync(selectedMatches: MatchForApp[]): Promise<Combinada> {
   console.log(`\n🎯 Generando combinada con ${selectedMatches.length} partidos...`);
   const results = await analyzeMatches(selectedMatches);
-  const goodResults = results.filter(r => r.riskLevel === 'LOW' || r.riskLevel === 'MEDIUM');
+  
+  // 🆕 v6.5 FIX: Incluir SAFE, LOW y MEDIUM (no solo LOW y MEDIUM)
+  const goodResults = results.filter(r => 
+    r.riskLevel === 'SAFE' || r.riskLevel === 'LOW' || r.riskLevel === 'MEDIUM'
+  );
+  
+  console.log(`📊 Picks válidos: ${goodResults.length}/${results.length} (SAFE+LOW+MEDIUM)`);
+  
   const picks = goodResults.map(pickResultToMatchPick);
   const totalOdds = Math.round(picks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
   const totalProbability = Math.round(picks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
