@@ -81,7 +81,7 @@ app.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       database: 'connected',
-      version: '1.0.0'
+      version: '6.0.0'
     });
   } catch (error) {
     console.error('Health check failed:', error);
