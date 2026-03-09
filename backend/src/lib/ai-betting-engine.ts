@@ -71,6 +71,12 @@ export interface PickResult {
   allOptions: BetOption[];
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'NO_BET';
   modelVersion: string;
+  // Datos reales del análisis
+  poissonData?: PoissonResult;
+  homeStats?: TeamStats;
+  awayStats?: TeamStats;
+  eloHome?: number;
+  eloAway?: number;
 }
 
 export interface MatchPick {
@@ -358,6 +364,8 @@ async function getGoalsFromESPNStandings(leagueCode: string): Promise<Map<string
       }
     }
 
+    console.log(`📊 ESPN respuesta: ${entries.length} equipos en standings`);
+
     for (const entry of entries) {
       const teamName = entry.team?.displayName?.toLowerCase() || '';
       const stats = entry.stats || [];
@@ -367,16 +375,22 @@ async function getGoalsFromESPNStandings(leagueCode: string): Promise<Map<string
         return stat?.value || 0;
       };
 
-      let goalsFor = getStat('pointsFor') || getStat('goalsFor') || getStat('goalsScored') || 0;
-      let goalsAgainst = getStat('pointsAgainst') || getStat('goalsAgainst') || getStat('goalsConceded') || 0;
+      // Intentar múltiples nombres de stats para goles
+      let goalsFor = getStat('pointsFor') || getStat('goalsFor') || getStat('goalsScored') || getStat('goals') || 0;
+      let goalsAgainst = getStat('pointsAgainst') || getStat('goalsAgainst') || getStat('goalsConceded') || getStat('goalsAllowed') || 0;
       let wins = getStat('wins') || 0;
       let losses = getStat('losses') || 0;
       let draws = getStat('ties') || getStat('draws') || 0;
-      let played = wins + draws + losses;
-      const position = getStat('rank') || parseInt(entry.team?.rank || '0');
+      let played = getStat('gamesPlayed') || getStat('games') || wins + draws + losses;
+      const position = getStat('rank') || getStat('standings') || parseInt(entry.team?.rank || '0') || 10;
 
       if (teamName && (goalsFor > 0 || goalsAgainst > 0)) {
         result.set(teamName, { goalsFor, goalsAgainst, played, wins, draws, losses, position });
+        
+        // Log detallado de los primeros 5 equipos
+        if (result.size <= 5) {
+          console.log(`  🏟️ ${teamName}: GF=${goalsFor}, GA=${goalsAgainst}, PJ=${played}, Pos=${position}`);
+        }
       }
     }
 
@@ -474,6 +488,7 @@ async function extractTeamStats(
 
   // Nivel 2 — Intentar ESPN Standings (ahora funciona para Champions League 2025-26 y otras)
   if (leagueCode) {
+    console.log(`📊 Buscando en ESPN Standings para ${competitor.team?.displayName}...`);
     const leagueGoals = await getGoalsFromESPNStandings(leagueCode);
     let realGoals = leagueGoals.get(teamName) || null;
 
@@ -482,14 +497,17 @@ async function extractTeamStats(
       for (const [name, data] of Array.from(leagueGoals.entries())) {
         if (name.includes(teamName) || teamName.includes(name)) {
           realGoals = data;
+          console.log(`🔄 Match fuzzy: "${teamName}" → "${name}"`);
           break;
         }
       }
+    } else {
+      console.log(`✅ Match exacto: "${teamName}"`);
     }
 
     if (realGoals && (realGoals.goalsFor > 0 || realGoals.goalsAgainst > 0)) {
       const competitionType = COMPETITION_STANDINGS_SUPPORTED.includes(leagueCode) ? 'internacional' : 'liga nacional';
-      console.log(`✅ Goles REALES para ${competitor.team?.displayName}: GF ${realGoals.goalsFor}, GA ${realGoals.goalsAgainst} en ${leagueCode} (${competitionType})`);
+      console.log(`✅ Goles REALES para ${competitor.team?.displayName}: GF ${realGoals.goalsFor}, GA ${realGoals.goalsAgainst} (${realGoals.played} PJ) en ${leagueCode} (${competitionType})`);
 
       const records = competitor.records || [];
       const totalRecord = records.find((r: any) => r.type === 'total') || records[0] || {};
@@ -772,12 +790,19 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
   else riskLevel = 'NO_BET';
 
   console.log(`✅ Pick: ${bestPick.label} (${bestPick.confidence}% confianza) - Riesgo: ${riskLevel}`);
+  console.log(`📊 xG: ${poissonResult.lambdaHome.toFixed(2)} - ${poissonResult.lambdaAway.toFixed(2)} (total: ${(poissonResult.lambdaHome + poissonResult.lambdaAway).toFixed(2)})`);
+  console.log(`🏆 ELO: ${homeStats.name}=${eloHome.toFixed(0)}, ${awayStats.name}=${eloAway.toFixed(0)} (diff: ${(eloHome - eloAway).toFixed(0)})`);
 
   return {
     matchId: match.id, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
     league: match.league, matchDate: match.matchDate, pick: bestPick,
     safePicks, allOptions: options, riskLevel,
     modelVersion: 'poisson-elo-v5.3-espn-standings-champions',
+    poissonData: poissonResult,
+    homeStats,
+    awayStats,
+    eloHome,
+    eloAway,
   };
 }
 
@@ -805,6 +830,22 @@ export async function analyzeMatches(matches: MatchForApp[]): Promise<PickResult
 // COMPATIBILIDAD CON CHAT.TS
 // ==========================================
 function pickResultToMatchPick(pickResult: PickResult): MatchPick {
+  // Calcular xGTotal con datos reales de Poisson
+  const xGTotal = pickResult.poissonData 
+    ? pickResult.poissonData.lambdaHome + pickResult.poissonData.lambdaAway
+    : (pickResult.homeStats && pickResult.awayStats 
+      ? pickResult.homeStats.avgGoalsFor + pickResult.awayStats.avgGoalsFor
+      : 2.7);
+  
+  // Calcular diferencia ELO real
+  const eloDiff = (pickResult.eloHome && pickResult.eloAway)
+    ? pickResult.eloHome - pickResult.eloAway
+    : 0;
+  
+  // Cuota con margen de casa de apuestas (5%)
+  const rawOdds = 1 / pickResult.pick.probability;
+  const odds = Math.round(rawOdds * 0.95 * 100) / 100; // 5% margen casa
+  
   return {
     matchId: pickResult.matchId,
     homeTeam: pickResult.homeTeam,
@@ -812,13 +853,13 @@ function pickResultToMatchPick(pickResult: PickResult): MatchPick {
     league: pickResult.league,
     matchDate: pickResult.matchDate,
     pick: pickResult.pick.label,
-    odds: Math.round((1 / pickResult.pick.probability) * 100) / 100,
+    odds,
     probability: pickResult.pick.probability,
     analysis: pickResult.pick.reasoning.join(' | '),
     score: pickResult.pick.confidence,
     monteCarloProb: pickResult.pick.probability,
-    eloDiff: 0,
-    xGTotal: 2.7,
+    eloDiff,
+    xGTotal: Math.round(xGTotal * 10) / 10,
     volatility: 100 - pickResult.pick.confidence,
     valueBet: Math.max(0, (pickResult.pick.probability - 0.5) * 100),
     status: 'pending',
