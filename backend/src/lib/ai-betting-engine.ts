@@ -82,6 +82,7 @@ export interface BetOption {
   confidence: number;
   label: string;
   reasoning: string[];
+  note?: string; // 🆕 Para indicar picks de riesgo
 }
 
 export interface PickResult {
@@ -93,7 +94,7 @@ export interface PickResult {
   pick: BetOption;
   safePicks: BetOption[];
   allOptions: BetOption[];
-  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'NO_BET';
+  riskLevel: 'SAFE' | 'LOW' | 'MEDIUM' | 'HIGH';
   modelVersion: string;
   poissonData?: PoissonResult;
   monteCarloData?: MonteCarloResult;
@@ -687,19 +688,89 @@ function generarRazones(home: TeamStats, away: TeamStats, tipo: string, poissonR
 }
 
 // ==========================================
-// FILTRO DE PICKS MEJORADO v6.1
+// FILTRO DE PICKS MEJORADO v6.4 - Con Tiers
 // ==========================================
 function filtrarPicks(options: BetOption[]): BetOption[] {
   return options.filter(o => {
-    // Filtro estricto: probabilidad > 60% Y confianza > 68
     if (o.probability < MIN_PROBABILITY) return false;
     if (o.confidence < MIN_CONFIDENCE) return false;
     return true;
   });
 }
 
+// 🆕 Función para obtener el mejor pick SIEMPRE
+function getBestPickAlways(options: BetOption[], xGTotal: number, posDiff: number): BetOption {
+  // Prioridad 1: Picks que pasan el filtro estricto
+  const safePicks = filtrarPicks(options);
+  
+  if (safePicks.length > 0) {
+    // Ordenar por prioridad según contexto
+    safePicks.sort((a, b) => {
+      // Si xGTotal bajo, favorecer UNDER
+      if (xGTotal < 2.2) {
+        if (a.type === 'UNDER_25' || a.type === 'UNDER_35') return -1;
+        if (b.type === 'UNDER_25' || b.type === 'UNDER_35') return 1;
+      }
+      // Si xGTotal alto, favorecer OVER
+      if (xGTotal > 3.0) {
+        if (a.type === 'OVER_15' || a.type === 'OVER_25') return -1;
+        if (b.type === 'OVER_15' || b.type === 'OVER_25') return 1;
+      }
+      // Si equipos parejos, favorecer totales sobre 1X2
+      if (posDiff <= 3) {
+        const isTotalA = a.type.includes('OVER') || a.type.includes('UNDER');
+        const isTotalB = b.type.includes('OVER') || b.type.includes('UNDER');
+        if (isTotalA && !isTotalB) return -1;
+        if (!isTotalA && isTotalB) return 1;
+      }
+      // Orden normal por prioridad
+      const priorityA = PICK_PRIORITY[a.type] || 50;
+      const priorityB = PICK_PRIORITY[b.type] || 50;
+      if (priorityA !== priorityB) return priorityB - priorityA;
+      return b.confidence - a.confidence;
+    });
+    
+    return { ...safePicks[0], note: undefined };
+  }
+  
+  // Prioridad 2: Si nada pasa el filtro, buscar el mejor disponible
+  // En partidos parejos, preferir totales de goles
+  const sortedOptions = [...options].sort((a, b) => {
+    // Si equipos muy parejos (posDiff <= 3), priorizar UNDER/OVER
+    if (posDiff <= 3) {
+      const isTotalA = a.type.includes('OVER') || a.type.includes('UNDER');
+      const isTotalB = b.type.includes('OVER') || b.type.includes('UNDER');
+      if (isTotalA && !isTotalB) return -1;
+      if (!isTotalA && isTotalB) return 1;
+    }
+    
+    // Si xGTotal bajo, priorizar UNDER
+    if (xGTotal < 2.3) {
+      if (a.type === 'UNDER_25' || a.type === 'UNDER_35') return -1;
+      if (b.type === 'UNDER_25' || b.type === 'UNDER_35') return 1;
+    }
+    
+    // Si xGTotal alto, priorizar OVER
+    if (xGTotal > 2.8) {
+      if (a.type === 'OVER_15') return -1;
+      if (b.type === 'OVER_15') return 1;
+    }
+    
+    // Por defecto, ordenar por confianza
+    return b.confidence - a.confidence;
+  });
+  
+  const bestFallback = sortedOptions[0];
+  
+  // 🆕 Añadir nota indicando que es un pick de mayor riesgo
+  return {
+    ...bestFallback,
+    note: `⚠️ Pick de riesgo (confianza: ${bestFallback.confidence}% < ${MIN_CONFIDENCE}% mínimo)`
+  };
+}
+
 // ==========================================
-// SELECTOR DE PICKS CON MERCADO AUTOMÁTICO
+// SELECTOR DE PICKS v6.4 - USA getBestPickAlways
 // ==========================================
 const PICK_PRIORITY: Record<string, number> = {
   'OVER_15': 100, 'UNDER_35': 95, 'DOUBLE_CHANCE_1X': 90, 'DOUBLE_CHANCE_X2': 90,
@@ -707,37 +778,8 @@ const PICK_PRIORITY: Record<string, number> = {
   'BTTS_NO': 65, 'UNDER_45': 50, 'DRAW': 40,
 };
 
-function selectBestPick(options: BetOption[], xGTotal: number): BetOption {
-  // Primero filtrar por umbrales
-  const safeOptions = filtrarPicks(options);
-  
-  if (safeOptions.length === 0) {
-    // Si ningún pick pasa el filtro, tomar el de mayor confianza
-    return options.reduce((best, curr) => curr.confidence > best.confidence ? curr : best);
-  }
-  
-  // Ordenar por prioridad Y contexto de xG
-  safeOptions.sort((a, b) => {
-    // Si xGTotal alto, favorecer OVER
-    if (xGTotal > 3.2) {
-      if (a.type === 'OVER_15' || a.type === 'OVER_25') return -1;
-      if (b.type === 'OVER_15' || b.type === 'OVER_25') return 1;
-    }
-    
-    // Si xGTotal bajo, favorecer UNDER
-    if (xGTotal < 2.1) {
-      if (a.type === 'UNDER_25' || a.type === 'UNDER_35') return -1;
-      if (b.type === 'UNDER_25' || b.type === 'UNDER_35') return 1;
-    }
-    
-    // Orden normal por prioridad
-    const priorityA = PICK_PRIORITY[a.type] || 50;
-    const priorityB = PICK_PRIORITY[b.type] || 50;
-    if (priorityA !== priorityB) return priorityB - priorityA;
-    return b.confidence - a.confidence;
-  });
-  
-  return safeOptions[0];
+function selectBestPick(options: BetOption[], xGTotal: number, posDiff: number = 5): BetOption {
+  return getBestPickAlways(options, xGTotal, posDiff);
 }
 
 // ==========================================
@@ -955,21 +997,25 @@ export async function analyzeMatchAsync(match: MatchForApp): Promise<PickResult 
   const options = calcularTodasLasApuestas(homeStats, awayStats, poissonResult, monteCarloResult, eloHome, eloAway, volatility);
   options.sort((a, b) => b.confidence - a.confidence);
 
-  const bestPick = selectBestPick(options, xGTotal);
+  const bestPick = selectBestPick(options, xGTotal, posDiff);
   const safePicks = filtrarPicks(options);
 
-  let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'NO_BET';
-  if (bestPick.confidence >= 72) riskLevel = 'LOW';
-  else if (bestPick.confidence >= 65) riskLevel = 'MEDIUM';
-  else if (bestPick.confidence >= 58) riskLevel = 'HIGH';
-  else riskLevel = 'NO_BET';
+  // 🆕 Sistema de tiers más granular
+  let riskLevel: 'SAFE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  if (bestPick.confidence >= 75) riskLevel = 'SAFE';
+  else if (bestPick.confidence >= 68) riskLevel = 'LOW';
+  else if (bestPick.confidence >= 60) riskLevel = 'MEDIUM';
+  else riskLevel = 'HIGH';
 
   // 🆕 Calcular Value Bet (vs cuota de mercado estimada)
   const marketOdds = 1 / bestPick.probability;
   const fairOdds = Math.round((1 / bestPick.probability) * 0.95 * 100) / 100;
   const valueBet = Math.max(0, (bestPick.probability - (1/marketOdds)) * 100);
 
-  console.log(`✅ Pick: ${bestPick.label} (${bestPick.confidence}% confianza) - Riesgo: ${riskLevel}`);
+  // Log con indicador de riesgo si aplica
+  const riskEmoji = riskLevel === 'SAFE' ? '✅' : riskLevel === 'LOW' ? '🟢' : riskLevel === 'MEDIUM' ? '🟡' : '🔴';
+  console.log(`${riskEmoji} Pick: ${bestPick.label} (${bestPick.confidence}% confianza) - Riesgo: ${riskLevel}`);
+  if (bestPick.note) console.log(`   ${bestPick.note}`);
   console.log(`📊 xG: ${xGTotal.toFixed(2)} (Home: ${poissonResult.lambdaHome.toFixed(2)}, Away: ${poissonResult.lambdaAway.toFixed(2)})`);
   console.log(`🏆 ELO: ${eloHome.toFixed(0)} vs ${eloAway.toFixed(0)} (diff: ${(eloHome - eloAway).toFixed(0)})`);
   console.log(`📍 Posición: #${homeStats.position} vs #${awayStats.position} (diff: ${posDiff})`);
@@ -993,11 +1039,18 @@ export async function analyzeMatches(matches: MatchForApp[]): Promise<PickResult
   for (const match of matches) {
     try {
       const result = await analyzeMatchAsync(match);
-      if (result && result.riskLevel !== 'NO_BET') results.push(result);
+      if (result) results.push(result); // 🆕 SIEMPRE incluir resultado
     } catch (error) { console.error(`Error:`, error); }
   }
   results.sort((a, b) => b.pick.confidence - a.pick.confidence);
-  console.log(`\n✅ ${results.length} picks recomendables`);
+  
+  // 🆕 Log resumen por nivel de riesgo
+  const safe = results.filter(r => r.riskLevel === 'SAFE').length;
+  const low = results.filter(r => r.riskLevel === 'LOW').length;
+  const medium = results.filter(r => r.riskLevel === 'MEDIUM').length;
+  const high = results.filter(r => r.riskLevel === 'HIGH').length;
+  console.log(`\n📊 Resumen: ${safe} seguros, ${low} bajos, ${medium} medios, ${high} altos`);
+  
   return results;
 }
 
