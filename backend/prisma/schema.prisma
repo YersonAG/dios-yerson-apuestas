@@ -133,6 +133,7 @@ model Match {
   awayLossesAway  Int?
   homeScore       Int?
   awayScore       Int?
+  minute          Int?
   status          String?   @default("SCHEDULED")
   createdAt       DateTime  @default(now())
   betItems        BetItem[]

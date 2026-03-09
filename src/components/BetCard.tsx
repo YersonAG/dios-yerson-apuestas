@@ -174,6 +174,7 @@ interface BetItem {
     homeScore?: number | null;
     awayScore?: number | null;
     status?: string;
+    minute?: number | null;
   };
 }
 
@@ -429,9 +430,18 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
                   {(status === 'live' || status === 'winning' || status === 'losing') &&
                    match.homeScore !== null && match.homeScore !== undefined &&
                    match.awayScore !== null && match.awayScore !== undefined && (
-                    <div className="px-2 md:px-3 py-0.5 md:py-1 rounded text-[11px] md:text-sm font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                      {match.homeScore} <span className="text-gray-400 mx-0.5">-</span> {match.awayScore}
-                      <span className="ml-1 text-blue-400 animate-pulse">●</span>
+                    <div className="flex items-center gap-1.5 md:gap-2">
+                      {/* Minuto del partido */}
+                      {match.minute && match.minute > 0 && (
+                        <div className="px-1.5 md:px-2 py-0.5 rounded text-[10px] md:text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse">
+                          {match.minute}'
+                        </div>
+                      )}
+                      {/* Marcador */}
+                      <div className="px-2 md:px-3 py-0.5 md:py-1 rounded text-[11px] md:text-sm font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                        {match.homeScore} <span className="text-gray-400 mx-0.5">-</span> {match.awayScore}
+                        <span className="ml-1 text-blue-400 animate-pulse">●</span>
+                      </div>
                     </div>
                   )}
                 </div>

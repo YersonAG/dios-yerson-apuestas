@@ -82,12 +82,13 @@ async function checkAndUpdateLiveScores(userId: string) {
         
         if (!liveScore) continue;
 
-        // Actualizar el match con el score
+        // Actualizar el match con el score y minuto
         await db.match.update({
           where: { id: item.matchId },
           data: {
             homeScore: liveScore.homeScore,
             awayScore: liveScore.awayScore,
+            minute: liveScore.minute,
             status: liveScore.status === 'live' ? 'LIVE' : liveScore.status === 'finished' ? 'FINISHED' : 'Scheduled',
           },
         });
