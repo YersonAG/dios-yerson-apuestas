@@ -1290,12 +1290,16 @@ function pickResultToMatchPick(pickResult: PickResult): MatchPick {
   const xGTotal = pickResult.xGTotal || pickResult.poissonData?.lambdaHome && pickResult.poissonData?.lambdaAway 
     ? pickResult.poissonData.lambdaHome + pickResult.poissonData.lambdaAway : 2.7;
   const eloDiff = (pickResult.eloHome && pickResult.eloAway) ? pickResult.eloHome - pickResult.eloAway : 0;
-  const odds = Math.round((1 / pickResult.pick.probability) * 0.95 * 100) / 100;
+  // 🆕 v6.5 FIX: Cuota mínima de 1.20 (no menos de 1.0 que no tiene sentido)
+  // Probabilidad maxima de 85% para cuotas realistas
+  const cappedProb = Math.min(pickResult.pick.probability, 0.85);
+  const rawOdds = 1 / cappedProb;
+  const odds = Math.max(1.20, Math.round(rawOdds * 100) / 100);
 
   return {
     matchId: pickResult.matchId, homeTeam: pickResult.homeTeam, awayTeam: pickResult.awayTeam,
     league: pickResult.league, matchDate: pickResult.matchDate, pick: pickResult.pick.label,
-    odds, probability: pickResult.pick.probability, analysis: pickResult.pick.reasoning.join(' | '),
+    odds, probability: cappedProb, analysis: pickResult.pick.reasoning.join(' | '),
     score: pickResult.pick.confidence, monteCarloProb: pickResult.pick.probability, eloDiff,
     xGTotal: Math.round(xGTotal * 10) / 10, volatility: pickResult.volatility || 100 - pickResult.pick.confidence,
     valueBet: Math.max(0, (pickResult.pick.probability - 0.5) * 100), status: 'pending',
