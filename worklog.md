@@ -1,6 +1,41 @@
 # Worklog - Sistema de Apuestas Deportivas
 
 ---
+## Task ID: 5 - Motor v5.4 Multi-Pick Selection
+### Agent: Super Z
+### Task: Implementar sistema de TOP 3 picks por partido con selección múltiple
+
+### Work Log:
+- Modificado ai-betting-engine.ts para devolver TOP 3 picks por partido
+- Nueva interfaz SelectablePick con toda la info necesaria para la UI
+- MatchPick ahora incluye topPicks y selectedPickIndices
+- Actualizado schema Prisma con campos topPicks (JSON) y selectedPickIndices (JSON)
+- Nuevo endpoint POST /api/chat/confirm para confirmar selecciones múltiples
+- Chat.tsx completamente reescrito para mostrar los 3 picks y permitir selección
+- BetCard.tsx y ActiveBetCard actualizados para mostrar múltiples picks
+- Usuario puede seleccionar 1, 2 o 3 picks por partido
+- Cuota total se calcula dinámicamente según picks seleccionados
+
+### Flujo del Usuario:
+1. Escribe "ver partidos" para ver partidos disponibles
+2. Selecciona hasta 20 partidos (checkboxes)
+3. Motor analiza y muestra TOP 3 picks por partido
+4. Usuario selecciona 1, 2 o 3 picks por partido
+5. Confirma apuesta con los picks seleccionados
+6. Ve a "Activas" para seguir estado en vivo
+
+### Stage Summary:
+- **Commit**: `30d1147` - "Motor v5.4 - Multi-Pick Selection completo"
+- **Archivos modificados**: 
+  - backend/src/lib/ai-betting-engine.ts (nuevo motor v5.4)
+  - backend/prisma/schema.prisma (campos topPicks, selectedPickIndices)
+  - backend/src/routes/chat.ts (nuevo endpoint confirm)
+  - src/components/Chat.tsx (UI para selección de picks)
+  - src/components/BetCard.tsx (visualización de múltiples picks)
+- **Modelo**: Poisson + ELO + ESPN Standings
+- **Features**: TOP 3 picks, selección múltiple, confianza %, odds calculadas
+
+---
 ## Task ID: 1 - Schema de Base de Datos
 ### Work Task
 Crear el schema de Prisma con todas las tablas necesarias para el sistema de apuestas.
