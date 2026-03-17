@@ -69,6 +69,10 @@ model BetItem {
   result       String?
   createdAt    DateTime @default(now())
   
+  // NUEVO v5.4: Top 3 picks para selección múltiple
+  topPicks     Json?    // Array de SelectablePick
+  selectedPickIndices Json? // Array de índices seleccionados [0, 1, 2]
+  
   @@index([betId])
   @@index([matchId])
 }

@@ -16,7 +16,9 @@ import {
   Plus,
   Circle,
   Loader2,
-  Trash2
+  Trash2,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface Pick {
@@ -28,6 +30,15 @@ interface Pick {
   league: string;
   matchDate: string;
   analysis?: string;
+  topPicks?: {
+    type: string;
+    label: string;
+    probability: number;
+    confidence: number;
+    odds: number;
+    reasoning: string[];
+  }[];
+  selectedPickIndices?: number[];
 }
 
 interface Combinada {
@@ -47,11 +58,10 @@ interface BetCardProps {
 export function BetCard({ combinada, onTakeBet, isYersonPick }: BetCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Sort picks by matchDate - most recent first (descending)
   const sortedPicks = [...combinada.picks].sort((a, b) => {
     const dateA = new Date(a.matchDate).getTime();
     const dateB = new Date(b.matchDate).getTime();
-    return dateB - dateA; // Descending - most recent first
+    return dateB - dateA;
   });
 
   return (
@@ -76,7 +86,6 @@ export function BetCard({ combinada, onTakeBet, isYersonPick }: BetCardProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-3 md:space-y-4 p-3 md:p-4 pt-0 md:pt-0">
-        {/* Stats principales */}
         <div className="grid grid-cols-2 gap-2 md:gap-3">
           <div className="bg-gray-800/50 rounded-lg p-2 md:p-3 border border-gray-700/50">
             <div className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">💰 Cuota Total</div>
@@ -89,20 +98,22 @@ export function BetCard({ combinada, onTakeBet, isYersonPick }: BetCardProps) {
           </div>
         </div>
 
-        {/* Lista de picks */}
         <div className="space-y-1.5 md:space-y-2">
           <div className="text-[10px] md:text-xs text-gray-400 flex items-center justify-between">
             <span>Picks ({combinada.picks.length})</span>
             <button 
               onClick={() => setIsExpanded(!isExpanded)}
-              className="text-green-400 hover:text-green-300 text-[10px] md:text-xs"
+              className="text-green-400 hover:text-green-300 text-[10px] md:text-xs flex items-center gap-1"
             >
-              {isExpanded ? 'Ver menos' : 'Ver análisis'}
+              {isExpanded ? 'Ver menos' : 'Ver todos los picks'}
+              {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </button>
           </div>
           
           {sortedPicks.map((pick, index) => {
             const matchDate = new Date(pick.matchDate);
+            const hasMultiplePicks = pick.topPicks && pick.topPicks.length > 0;
+            const selectedIndices = pick.selectedPickIndices || [0];
             
             return (
               <div
@@ -114,11 +125,27 @@ export function BetCard({ combinada, onTakeBet, isYersonPick }: BetCardProps) {
                     <div className="text-[11px] md:text-sm text-white font-medium truncate">
                       {index + 1}. {pick.homeTeam} vs {pick.awayTeam}
                     </div>
-                    <div className="flex items-center gap-1 md:gap-2 mt-0.5 md:mt-1 flex-wrap">
-                      <Badge variant="outline" className="text-[10px] md:text-xs border-green-500/50 text-green-400 px-1.5 md:px-2">
-                        {pick.pick}
-                      </Badge>
-                      <span className="text-[10px] md:text-xs text-gray-400">@ {pick.odds.toFixed(2)}</span>
+                    
+                    {/* Picks seleccionados */}
+                    <div className="flex flex-wrap items-center gap-1 md:gap-2 mt-1">
+                      {hasMultiplePicks && selectedIndices.length > 1 ? (
+                        // Mostrar múltiples picks si hay más de uno seleccionado
+                        <div className="flex flex-wrap gap-1">
+                          {selectedIndices.map((idx) => (
+                            <Badge key={idx} variant="outline" className="text-[10px] md:text-xs border-green-500/50 text-green-400 px-1.5 md:px-2">
+                              {pick.topPicks![idx]?.label} @{pick.topPicks![idx]?.odds.toFixed(2)}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        // Un solo pick
+                        <>
+                          <Badge variant="outline" className="text-[10px] md:text-xs border-green-500/50 text-green-400 px-1.5 md:px-2">
+                            {pick.pick}
+                          </Badge>
+                          <span className="text-[10px] md:text-xs text-gray-400">@ {pick.odds.toFixed(2)}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="text-right shrink-0">
@@ -131,8 +158,36 @@ export function BetCard({ combinada, onTakeBet, isYersonPick }: BetCardProps) {
                   </div>
                 </div>
 
+                {/* TOP 3 picks expandido */}
+                {isExpanded && hasMultiplePicks && (
+                  <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-gray-700/50">
+                    <div className="text-[10px] md:text-xs text-gray-400 mb-1.5 md:mb-2">🎯 TOP 3 Picks:</div>
+                    <div className="space-y-1">
+                      {pick.topPicks!.map((topPick, pIdx) => {
+                        const isSelected = selectedIndices.includes(pIdx);
+                        return (
+                          <div key={pIdx} className={`flex items-center justify-between p-1.5 md:p-2 rounded text-[10px] md:text-xs ${
+                            isSelected ? 'bg-green-500/20 border border-green-500/50' : 'bg-gray-800/50'
+                          }`}>
+                            <div className="flex items-center gap-1.5">
+                              {isSelected && <CheckCircle className="w-3 h-3 text-green-400" />}
+                              <span className={isSelected ? 'text-green-400 font-medium' : 'text-gray-300'}>
+                                {topPick.label}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-400">@{topPick.odds.toFixed(2)}</span>
+                              <span className="text-green-400 font-medium">{topPick.confidence}%</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Análisis expandido */}
-                {isExpanded && pick.analysis && (
+                {isExpanded && pick.analysis && !hasMultiplePicks && (
                   <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-gray-700/50">
                     <div className="text-[10px] md:text-xs text-gray-400">
                       📈 {pick.analysis}
@@ -144,7 +199,6 @@ export function BetCard({ combinada, onTakeBet, isYersonPick }: BetCardProps) {
           })}
         </div>
 
-        {/* Botón para tomar la apuesta */}
         {onTakeBet && (
           <Button
             onClick={() => onTakeBet(combinada)}
@@ -159,7 +213,7 @@ export function BetCard({ combinada, onTakeBet, isYersonPick }: BetCardProps) {
   );
 }
 
-// Componente para mostrar una apuesta activa - SIN botones manuales
+// Componente para mostrar una apuesta activa
 interface BetItem {
   id: string;
   pick: string;
@@ -176,6 +230,8 @@ interface BetItem {
     status?: string;
     minute?: number | null;
   };
+  topPicks?: any;
+  selectedPickIndices?: number[];
 }
 
 interface ActiveBetCardProps {
@@ -192,9 +248,9 @@ interface ActiveBetCardProps {
 }
 
 export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps) {
+  const [showAllPicks, setShowAllPicks] = useState<Record<string, boolean>>({});
   const totalOdds = bet.items.reduce((acc, item) => acc * item.odds, 1);
 
-  // Función para determinar si un pick está ganando en vivo
   const isPickWinning = (item: BetItem): boolean => {
     const { homeScore, awayScore } = item.match;
     if (homeScore === null || homeScore === undefined || 
@@ -203,24 +259,13 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
     const pick = item.pick.toLowerCase();
     const totalGoals = homeScore + awayScore;
     
-    // Doble oportunidad 1X - gana local o empate
-    if (pick.includes('doble oportunidad 1x') || pick.includes('1x')) {
-      return homeScore >= awayScore;
-    }
-    // Doble oportunidad X2 - gana visitante o empate
-    if (pick.includes('doble oportunidad x2') || pick.includes('x2')) {
-      return awayScore >= homeScore;
-    }
-    // Doble oportunidad 12 - no empate
-    if (pick.includes('doble oportunidad 12') || pick.includes('12')) {
-      return homeScore !== awayScore;
-    }
-    // Más de X goles
+    if (pick.includes('doble oportunidad 1x') || pick.includes('1x')) return homeScore >= awayScore;
+    if (pick.includes('doble oportunidad x2') || pick.includes('x2')) return awayScore >= homeScore;
+    if (pick.includes('doble oportunidad 12') || pick.includes('12')) return homeScore !== awayScore;
     if (pick.includes('más de') || pick.includes('mas de')) {
       const match = pick.match(/má?s de\s*(\d+\.?\d*)/);
       if (match) return totalGoals > parseFloat(match[1]);
     }
-    // Menos de X goles
     if (pick.includes('menos de')) {
       const match = pick.match(/menos de\s*(\d+\.?\d*)/);
       if (match) return totalGoals < parseFloat(match[1]);
@@ -229,45 +274,31 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
     return false;
   };
 
-  // Función para determinar el estado visual del pick
   const getPickStatus = (item: BetItem): 'won' | 'lost' | 'winning' | 'losing' | 'live' | 'pending' => {
     const match = item.match;
     const matchDate = match.matchDate ? new Date(match.matchDate) : null;
     const now = new Date();
     
-    // Si ya tiene resultado (definido automáticamente por el sistema)
     if (item.result === 'won') return 'won';
     if (item.result === 'lost') return 'lost';
     
-    // Si el partido está en vivo (ya empezó pero no tiene resultado aún)
     if (matchDate && matchDate < now) {
       const hasScore = match.homeScore !== null && match.homeScore !== undefined;
-      if (hasScore) {
-        // Determinar si está ganando o perdiendo
-        return isPickWinning(item) ? 'winning' : 'losing';
-      }
+      if (hasScore) return isPickWinning(item) ? 'winning' : 'losing';
       return 'live';
     }
     
-    // Si aún no empieza
     return 'pending';
   };
 
-  // Colores según estado
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'won':
-        return 'bg-green-500/20 border-green-500/50 ring-1 ring-green-500/30';
-      case 'lost':
-        return 'bg-red-500/20 border-red-500/50 ring-1 ring-red-500/30';
-      case 'winning':
-        return 'bg-emerald-500/30 border-emerald-500/50 ring-1 ring-emerald-400/50 animate-pulse';
-      case 'losing':
-        return 'bg-orange-500/20 border-orange-500/50 ring-1 ring-orange-400/50';
-      case 'live':
-        return 'bg-blue-500/20 border-blue-500/50';
-      default:
-        return 'bg-gray-800/30 border-gray-700/30';
+      case 'won': return 'bg-green-500/20 border-green-500/50 ring-1 ring-green-500/30';
+      case 'lost': return 'bg-red-500/20 border-red-500/50 ring-1 ring-red-500/30';
+      case 'winning': return 'bg-emerald-500/30 border-emerald-500/50 ring-1 ring-emerald-400/50 animate-pulse';
+      case 'losing': return 'bg-orange-500/20 border-orange-500/50 ring-1 ring-orange-400/50';
+      case 'live': return 'bg-blue-500/20 border-blue-500/50';
+      default: return 'bg-gray-800/30 border-gray-700/30';
     }
   };
 
@@ -311,8 +342,7 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
         );
     }
   };
-  
-  // Calcular estadísticas rápidas de la combinada
+
   const stats = {
     won: bet.items.filter(i => i.result === 'won').length,
     lost: bet.items.filter(i => i.result === 'lost').length,
@@ -323,7 +353,6 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
 
   return (
     <div className="flex gap-2 items-start">
-      {/* Botón de eliminar al lado izquierdo */}
       {onDelete && (
         <button
           onClick={() => onDelete(bet.id)}
@@ -382,12 +411,13 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
           </div>
         </div>
 
-        {/* Lista de picks - ordenados por fecha más reciente primero (ya ordenados desde ActiveBets) */}
         <div className="space-y-1.5 md:space-y-2">
           {bet.items.map((item, index) => {
             const status = getPickStatus(item);
             const match = item.match;
             const matchDate = match.matchDate ? new Date(match.matchDate) : null;
+            const hasMultiplePicks = item.topPicks && Array.isArray(item.topPicks) && item.topPicks.length > 0;
+            const selectedIndices = item.selectedPickIndices || [0];
             
             return (
               <div 
@@ -422,22 +452,35 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
                 
                 <div className="flex items-center justify-between mt-1.5 md:mt-2 pt-1.5 md:pt-2 border-t border-gray-700/30">
                   <div className="flex items-center gap-1 md:gap-2 flex-wrap">
-                    <span className="text-green-400 font-medium text-[11px] md:text-sm">{item.pick}</span>
-                    <span className="text-gray-400 text-[10px] md:text-xs">@ {item.odds.toFixed(2)}</span>
+                    {/* Mostrar picks seleccionados */}
+                    {hasMultiplePicks && selectedIndices.length > 1 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {selectedIndices.map((idx) => {
+                          const topPick = item.topPicks[idx];
+                          return topPick ? (
+                            <span key={idx} className="text-green-400 font-medium text-[10px] md:text-xs bg-green-500/10 px-1.5 rounded">
+                              {topPick.label} @{topPick.odds?.toFixed(2) || item.odds.toFixed(2)}
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    ) : (
+                      <>
+                        <span className="text-green-400 font-medium text-[11px] md:text-sm">{item.pick}</span>
+                        <span className="text-gray-400 text-[10px] md:text-xs">@ {item.odds.toFixed(2)}</span>
+                      </>
+                    )}
                   </div>
                   
-                  {/* Marcador en vivo - SOLO mostrar cuando el partido está en vivo */}
                   {(status === 'live' || status === 'winning' || status === 'losing') &&
                    match.homeScore !== null && match.homeScore !== undefined &&
                    match.awayScore !== null && match.awayScore !== undefined && (
                     <div className="flex items-center gap-1.5 md:gap-2">
-                      {/* Minuto del partido */}
                       {match.minute && match.minute > 0 && (
                         <div className="px-1.5 md:px-2 py-0.5 rounded text-[10px] md:text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse">
                           {match.minute}'
                         </div>
                       )}
-                      {/* Marcador */}
                       <div className="px-2 md:px-3 py-0.5 md:py-1 rounded text-[11px] md:text-sm font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
                         {match.homeScore} <span className="text-gray-400 mx-0.5">-</span> {match.awayScore}
                         <span className="ml-1 text-blue-400 animate-pulse">●</span>
@@ -450,7 +493,6 @@ export function ActiveBetCard({ bet, onDelete, isDeleting }: ActiveBetCardProps)
           })}
         </div>
 
-        {/* Mensaje de resultado final */}
         {bet.status !== 'active' && (
           <div className={`text-center py-2 md:py-3 rounded-lg ${
             bet.status === 'won' 
