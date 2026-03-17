@@ -703,7 +703,7 @@ export async function generateCombinadaFromMatchesAsync(selectedMatches: MatchFo
   console.log(`\n🎯 Generando combinada con ${selectedMatches.length} partidos...`);
   const results = await analyzeMatches(selectedMatches);
   const goodResults = results.filter(r => r.riskLevel === 'LOW' || r.riskLevel === 'MEDIUM');
-  const picks = goodResults.map(pickResultToMatchPick);
+  const picks = goodResults.map(r => pickResultToMatchPick(r));
 
   const totalOdds = Math.round(picks.reduce((acc, p) => acc * p.odds, 1) * 100) / 100;
   const totalProbability = Math.round(picks.reduce((acc, p) => acc * p.probability, 1) * 1000) / 1000;
