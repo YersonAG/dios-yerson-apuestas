@@ -14,8 +14,9 @@ import {
   PieChart,
   Activity
 } from 'lucide-react';
+import { config } from '@/lib/config';
 
-const API_URL = 'https://dios-yerson-backend.onrender.com';
+const API_URL = config.apiUrl;
 
 interface LearningStats {
   pickType: string;

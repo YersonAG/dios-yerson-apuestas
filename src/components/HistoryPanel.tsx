@@ -14,8 +14,9 @@ import {
   Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { config } from '@/lib/config';
 
-const API_URL = 'https://dios-yerson-backend.onrender.com';
+const API_URL = config.apiUrl;
 
 interface BetHistoryItem {
   id: string;

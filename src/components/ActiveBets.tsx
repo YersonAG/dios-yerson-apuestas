@@ -7,8 +7,9 @@ import { Trophy, Clock, RefreshCw, Trash2 } from 'lucide-react';
 import { ActiveBetCard } from './BetCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { config } from '@/lib/config';
 
-const API_URL = 'https://dios-yerson-backend.onrender.com';
+const API_URL = config.apiUrl;
 
 interface BetItem {
   id: string;

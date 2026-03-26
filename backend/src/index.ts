@@ -26,7 +26,7 @@ app.use(helmet({
 }));
 app.use(compression());
 
-// CORS configurado para producción
+// CORS configurado para producción (Render, Railway, Vercel)
 const allowedOrigins = [
   'http://localhost:3000',
   'https://dios-yerson-apuestas.vercel.app',
@@ -37,16 +37,17 @@ app.use(cors({
   origin: (origin, callback) => {
     // Permitir requests sin origin (mobile apps, postman, etc.)
     if (!origin) return callback(null, true);
-    
-    // Verificar si el origin está permitido o es un subdominio de vercel
+
+    // Verificar si el origin está permitido o es un subdominio de vercel/railway
     const isAllowed = allowedOrigins.some(allowed => {
       if (!allowed) return false;
       if (allowed === origin) return true;
-      // Permitir subdominios de vercel
-      if (origin.includes('.vercel.app') && allowed.includes('.vercel.app')) return true;
+      // Permitir subdominios de vercel y railway
+      if (origin.includes('.vercel.app')) return true;
+      if (origin.includes('.railway.app')) return true;
       return false;
     });
-    
+
     if (isAllowed) {
       callback(null, true);
     } else {

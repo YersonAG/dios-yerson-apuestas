@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
+import { config } from '@/lib/config';
 
 interface Match {
   id: string;
@@ -115,7 +116,7 @@ Escribe **"ver partidos"** para ver los partidos disponibles.
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const API_URL = 'https://dios-yerson-backend.onrender.com';
+  const API_URL = config.apiUrl;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

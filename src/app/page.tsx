@@ -33,8 +33,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { config } from '@/lib/config';
 
-const API_URL = 'https://dios-yerson-backend.onrender.com';
+const API_URL = config.apiUrl;
 
 interface User {
   id: string;

@@ -18,8 +18,9 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { config } from '@/lib/config';
 
-const API_URL = 'https://dios-yerson-backend.onrender.com';
+const API_URL = config.apiUrl;
 
 interface AuthPageProps {
   onAuthSuccess: (user: { id: string; username: string; email: string }) => void;
